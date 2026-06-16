@@ -12,17 +12,24 @@ reverse), pas dans le vocabulaire.
 La référence normative complète est **`docs/SPEC.md`**. Lis-la avant de coder. Toute déviation
 par rapport à la spec d'origine y est explicitement flaggée (sections « ⚠️ Déviation »).
 
+**Les mots-clés sont du troll cosmétique.** `bot`/`loot`/`farm`/`gg`… ne sont que de la saveur ;
+on pourrait les renommer sans rien changer. Aucun n'est load-bearing — seules les 3 mécaniques le
+sont. Ne jamais traiter un nom de keyword comme porteur de sens.
+
 ## Les 3 mécaniques réelles (le cœur)
 
 1. **Budget PA/PM par tour.** Le code s'exécute par `tour { ... } passer`. Chaque tour dispose de
    `MAX_PA=6` / `MAX_PM=3`, régénérés à `passer`. Les actions coûtent (table dans la spec) ; la
    *perception* (lectures en condition, `pa`/`pm`/`suspicion`, `cd_pret`) coûte 0. Trop gourmand →
    `error[E-PA]` (statique) ou panic `PaInsuffisant` (dynamique).
-2. **Suspicion (le déterminisme est illégal).** Variable globale implicite. Détection par
-   **fenêtre glissante des K=8 dernières actions** : si `(id_action, bucket_délai)` y figure déjà
-   → `+PENALITE` ; sinon `−DECAY`. `>= SEUIL_BAN` → `error: compte banni`, code retour ≠ 0.
-   Horloge **virtuelle** alimentée par `afk` (pas de sleep réel). `afk rand(a,b)` disperse les
-   buckets (survie) ; `afk 3000` fixe répète le bucket (ban).
+2. **Suspicion (le déterminisme est illégal).** Variable globale implicite. **Ne traque QUE les
+   actions observables** : appels de `bot`, `afk`, `up` (l'anti-bot ne voit pas ta RAM). Le
+   **calcul interne** (affectations, arithmétique, `detect`/`farm`, `passer`) ne lève jamais de
+   suspicion → la couche calcul est libre et **Turing-complète** (SPEC §1.5, Déviation 6).
+   Détection par **fenêtre glissante des K=8 dernières actions observables** : si
+   `(id_action, bucket_délai)` y figure déjà → `+PENALITE` ; sinon `−DECAY`. `>= SEUIL_BAN` →
+   `error: compte banni`, code retour ≠ 0. Horloge **virtuelle** alimentée par `afk` (pas de sleep
+   réel). `afk rand(a,b)` disperse les buckets (survie) ; `afk 3000` fixe répète le bucket (ban).
 3. **Cooldowns.** `bot f() ... cd M` : après appel, `f` indisponible M tours. `cd_pret(f)` teste.
    Appel en cooldown → `error: sort en cooldown`.
 

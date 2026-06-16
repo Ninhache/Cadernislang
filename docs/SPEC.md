@@ -14,6 +14,11 @@ Compilo : `cdc`. Cible finale : LLVM (« llvm-slop »), via étapes (interpréte
 **Règle d'or :** chaque feature « thème » doit être une *contrainte d'exécution réelle*. Un
 renommage cosmétique d'un construct classique ne va pas dans le langage.
 
+> **Note sur le vocabulaire.** Les mots-clés (`bot`, `loot`, `farm`, `tour`, `gg`, …) sont du
+> **troll cosmétique** assumé : la blague n'est *pas* dans le lexique, elle est dans la sémantique
+> d'exécution (§1). On pourrait tous les renommer sans rien changer au langage. Aucun nom de
+> keyword n'est « load-bearing » — seules les trois mécaniques le sont.
+
 ---
 
 ## 1. Les trois mécaniques (le cœur)
@@ -82,6 +87,29 @@ Pour les coûts dynamiques (boucle dans un `tour`), vérification **au runtime**
 C'est l'âme du langage. Variable globale implicite `suspicion` (entier non signé), démarre à `0`,
 seuil `SEUIL_BAN = 80`.
 
+**Deux couches : calcul (invisible) vs action de jeu (observable).**
+
+> **⚠️ Déviation 6 (Turing-complétude).** La spec d'origine faisait entrer **toute** action dans la
+> fenêtre de suspicion, y compris les affectations. Conséquence fatale : un calcul **déterministe**
+> (une machine de Turing l'est par nature) répète le même `(id, bucket)` → pénalité → BAN. *Aucun*
+> calcul long ne survit → le langage n'est **pas** Turing-complet en pratique.
+>
+> **Correction (et c'est thématiquement juste — un anti-bot ne voit pas ta RAM, il voit tes actions
+> de jeu) :** on distingue deux couches.
+>
+> | Couche | Constructs | Mécaniques appliquées |
+> |---|---|---|
+> | **Calcul** (invisible côté serveur) | `loot`/`ban`, arithmétique, comparaisons, `et`/`ou`/`pas`, `detect`/`sinon`, `farm`, `grind`, affectations, `passer`, corps de `bot` | **PA / PM uniquement** (le gas) |
+> | **Action de jeu** (observable) | appels de `bot`, `afk` / `afk rand`, `up` | **PA / PM + suspicion** |
+>
+> **Seules les actions observables entrent dans la fenêtre de suspicion.** Le calcul interne ne
+> lève jamais de suspicion. Un programme qui ne fait que calculer (sans `bot`/`afk`/`up`) tourne
+> indéfiniment → Turing-complet (voir §1.5). Le puzzle de furtivité n'existe que sur la couche
+> action de jeu.
+>
+> `id_action` n'est défini que pour les actions observables : identifiant du `bot` appelé, ou un id
+> dédié pour `afk`, ou un id dédié pour `up`.
+
 **Horloge virtuelle.**
 
 > **⚠️ Déviation 3.** La spec d'origine parlait d'« horloge réelle ». On utilise une **horloge
@@ -132,6 +160,56 @@ error: sort en cooldown
 À chaque `cdc build`, un seed renumérote les tags internes des champs de `perso` et des variants
 de `pano`, **sauf** ceux épinglés (`@N`). Un code épinglé survit ; un code paresseux casse au
 rebuild. À faire une fois le reste stable.
+
+### 1.5 — Turing-complétude & écrivabilité
+
+**Argument de Turing-complétude.** Le sous-langage de la *couche calcul* est un langage WHILE :
+variables entières mutables (`loot`), affectation, arithmétique (`+ - * /`), test (`detect`) et
+boucle non bornée (`farm`). Un langage WHILE de cette forme simule une machine à compteurs, donc
+est Turing-complet. Comme (Déviation 6) la couche calcul **ne lève jamais de suspicion** et que
+`passer` (avancer d'un tour, régénérer le budget) n'est pas une action observable, **un programme
+purement calculatoire s'exécute sans limite de durée** : le budget PA/PM ne borne que le travail
+*par tour*, jamais le nombre de tours. La contrainte de gameplay **ne retire donc pas** la
+Turing-complétude — elle structure seulement *comment* on étale le calcul dans le temps.
+
+> Réserve usuelle des toy langs : `kamas` est un i64 (mémoire bornée comme dans tout langage réel).
+> La Turing-complétude est entendue au sens du modèle (entiers non bornés) ; un type `bignum`
+> pourra être ajouté plus tard si on veut être pédant.
+
+**Écrivabilité — exemple de calcul pur (zéro suspicion).** Somme de 1 à n, étalée sur les tours :
+
+```
+// gg wp
+connexion {
+    loot n   : kamas = 100
+    loot i   : kamas = 1
+    loot acc : kamas = 0
+
+    farm i <= n {
+        tour {
+            acc += i      // couche calcul : 1 PA, 0 suspicion
+            i   += 1      // 1 PA
+        }
+        passer            // tour suivant, budget régénéré
+    }
+    up "fin du calcul"    // une seule action observable, en fin
+}
+```
+
+Ce programme ne lance aucun `bot`, ne fait aucun `afk` : **suspicion reste 0**, il termine quel que
+soit `n`. Preuve par l'exemple que la logique « ordinaire » est triviale à écrire.
+
+**Écrivabilité — le puzzle n'apparaît que sur la couche action.** Dès qu'on interagit avec le jeu
+(appels de `bot`, `afk`, `up` en boucle), il faut introduire de la variabilité (`afk rand`) pour
+tenir la suspicion sous le seuil. C'est le golden test (§10).
+
+**Garantie de survie (calibrage).** Sur la couche action, l'espérance de variation de suspicion par
+action est `PENALITE · p − DECAY · (1 − p)`, où `p ≈ K / B` est la probabilité de collision dans la
+fenêtre (`B` = nombre de buckets distincts atteignables par l'`afk rand`). Avec
+`PENALITE=7, DECAY=3, K=8`, la suspicion reste **bornée en moyenne** dès que `B ≥ 27`, soit une
+plage `afk rand` d'au moins `27 × bucket_ms = 13_500 ms`. La diversité des `id_action` (plusieurs
+sorts entrelacés, comme dans le golden) abaisse `p` davantage. → Il existe toujours une stratégie
+permettant un farm observable **illimité** ; le skill consiste à la trouver.
 
 ---
 

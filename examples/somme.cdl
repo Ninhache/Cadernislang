@@ -1,0 +1,17 @@
+// gg wp
+// Calcul pur : aucune action observable (bot/afk/up en boucle) -> suspicion reste 0.
+// Démontre la Turing-complétude pratique : la couche calcul est libre (SPEC §1.5).
+connexion {
+    loot n   : kamas = 100
+    loot i   : kamas = 1
+    loot acc : kamas = 0
+
+    farm i <= n {
+        tour {
+            acc += i      // couche calcul : coûte 1 PA, 0 suspicion
+            i   += 1      // 1 PA
+        }
+        passer            // tour suivant, budget régénéré
+    }
+    up "fin du calcul"    // une seule action observable, en toute fin
+}
