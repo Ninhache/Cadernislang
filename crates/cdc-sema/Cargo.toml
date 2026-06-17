@@ -1,0 +1,10 @@
+[package]
+name = "cdc-sema"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+cdc-ast = { path = "../cdc-ast" }
+cdc-runtime = { path = "../cdc-runtime" }

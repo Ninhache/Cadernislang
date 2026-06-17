@@ -1,0 +1,10 @@
+[package]
+name = "cdc-parser"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+cdc-lexer = { path = "../cdc-lexer" }
+cdc-ast = { path = "../cdc-ast" }

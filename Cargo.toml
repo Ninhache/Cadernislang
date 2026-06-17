@@ -1,0 +1,20 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/cdc-lexer",
+    "crates/cdc-ast",
+    "crates/cdc-parser",
+    "crates/cdc-sema",
+    "crates/cdc-interp",
+    "crates/cdc-codegen",
+    "crates/cdc-runtime",
+    "crates/cdc",
+]
+
+# Métadonnées partagées par tous les crates du workspace.
+[workspace.package]
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.93"
+license = "MIT"
+repository = "https://github.com/Ninhache/Cadernislang"
