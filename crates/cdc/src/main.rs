@@ -75,7 +75,7 @@ fn dispatch(args: &[String]) -> Result<(), ()> {
         return Err(());
     }
 
-    // Front-end commun à toutes les commandes (Phase 1) : lexer + parser → AST.
+    // Front-end commun à toutes les commandes : lexer + parser → AST (Phase 1).
     let program = match cdc_parser::parse(&source) {
         Ok(p) => p,
         Err(e) => {
@@ -83,6 +83,15 @@ fn dispatch(args: &[String]) -> Result<(), ()> {
             return Err(());
         }
     };
+
+    // Analyse sémantique : résolution, typage, budget statique PA/PM (Phase 4).
+    let diags = cdc_sema::check(&program);
+    if !diags.is_empty() {
+        for d in &diags {
+            eprintln!("{d}");
+        }
+        return Err(());
+    }
 
     match cmd {
         "build" => {

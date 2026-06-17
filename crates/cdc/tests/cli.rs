@@ -58,6 +58,23 @@ fn build_affiche_banniere() {
 }
 
 #[test]
+fn check_tour_trop_gourmand_e_pa() {
+    // §9.3 : un tour statiquement > MAX_PA → cdc check échoue avec error[E-PA].
+    let f = write_temp(
+        "epa",
+        "// gg wp\nconnexion {\n loot x = 0\n tour {\n  x = 1\n  x = 2\n  x = 3\n  x = 4\n  x = 5\n  x = 6\n  x = 7\n }\n passer\n}\n",
+    );
+    let out = cdc().arg("check").arg(&f).output().unwrap();
+    assert!(!out.status.success(), "check doit échouer (§9.3)");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("error[E-PA]"),
+        "diagnostic E-PA attendu, stderr = {stderr:?}"
+    );
+    let _ = std::fs::remove_file(&f);
+}
+
+#[test]
 fn sous_commande_inconnue_echoue() {
     let out = cdc().arg("farmle").output().unwrap();
     assert!(!out.status.success());
