@@ -44,7 +44,7 @@ Workspace Cargo, 1 crate par responsabilité :
 | `cdc-parser` | descente récursive → AST |
 | `cdc-sema` | résolution, typage, analyse statique budget PA/PM |
 | `cdc-interp` | interpréteur tree-walking |
-| `cdc-codegen` | backend LLVM (`inkwell`, **LLVM 18**) |
+| `cdc-codegen` | backend natif : émission de LLVM IR textuel → `clang` (ADR-002) |
 | `cdc-runtime` | **toute** la jouabilité, exposée en C ABI, partagée interp↔LLVM |
 | `cdc` | binaire CLI (driver) |
 
@@ -62,9 +62,10 @@ cdc check fichier.cdl   # lexer + parser + sema (dont vérif budget), sans exéc
 ## Prérequis & build
 
 - Rust 2021, toolchain 1.93+.
-- **LLVM 18** pour `cdc build` (Phase 5). Sur Arch : `sudo pacman -S --needed llvm18`, puis
-  `export LLVM_SYS_181_PREFIX=/usr/lib/llvm18`. (La machine a LLVM 22 système, incompatible
-  inkwell → on épingle 18.) Sans LLVM, `cdc run`/`cdc check` fonctionnent.
+- **`clang`** pour `cdc build` : `cdc-codegen` émet du LLVM IR textuel compilé par le `clang`
+  système (toute version récente). Aucune dépendance LLVM au build-time. Sur Arch :
+  `sudo pacman -S --needed clang`. Sans `clang`, `cdc run`/`cdc check` fonctionnent. (Historique
+  inkwell/LLVM 18 abandonné : ADR-002 — Arch `llvm18` sans libs statiques.)
 - `cargo fmt` et `cargo clippy` doivent rester propres.
 
 ## Conventions

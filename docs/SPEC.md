@@ -395,10 +395,11 @@ code LLVM généré : compteurs PA/PM + régen `passer` ; moteur de suspicion (f
 buckets, BAN) ; table de cooldowns ; builtins. **La sémantique est définie une seule fois**
 (§9.7).
 
-**Backend LLVM :** `inkwell` épinglé **LLVM 18** (feature `llvm18-1`). Le codegen abaisse en LLVM
-IR avec des `call` vers les symboles `extern "C"` de `cdc-runtime`, émet un objet, puis linke
-(via `cc`) avec `cdc-runtime` (crate-type `staticlib` + `rlib`) en binaire natif.
-`llvm-sys` exige LLVM installé : `LLVM_SYS_181_PREFIX=/usr/lib/llvm18` sur Arch.
+**Backend natif :** `cdc-codegen` **émet du LLVM IR textuel** (`.ll`) avec des `call` vers les
+symboles `extern "C"` de `cdc-runtime`, puis le compile et le linke avec `cdc-runtime` (crate-type
+`staticlib` + `rlib`) via le **`clang` du système**. Pas de dépendance LLVM au build-time ;
+`clang` n'est requis qu'au runtime de `cdc build`. (Historique : `inkwell`/`llvm-sys` abandonnés
+car le paquet Arch `llvm18` ne fournit pas les libs statiques que `llvm-sys` exige — voir ADR-002.)
 
 **CLI `cdc` :** `run` (interp), `build` (codegen + link), `check` (lexer+parser+sema, sans
 exécution).

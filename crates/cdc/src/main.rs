@@ -22,6 +22,14 @@ fn usage() -> String {
     )
 }
 
+/// Localise la staticlib `cdc-runtime` (produite dans le même répertoire que le binaire `cdc`).
+fn runtime_staticlib() -> std::path::PathBuf {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.join("libcdc_runtime.a")))
+        .unwrap_or_else(|| std::path::PathBuf::from("libcdc_runtime.a"))
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match dispatch(&args) {
@@ -95,8 +103,19 @@ fn dispatch(args: &[String]) -> Result<(), ()> {
 
     match cmd {
         "build" => {
-            println!("{BANNER}");
-            println!("note: backend LLVM non encore implémenté (Phase 5) — AST construit.");
+            let stem = std::path::Path::new(path)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("a");
+            let out = std::path::PathBuf::from(stem);
+            let rt_lib = runtime_staticlib();
+            match cdc_codegen::build(&program, &out, &rt_lib) {
+                Ok(()) => println!("binaire natif produit : {}", out.display()),
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    return Err(());
+                }
+            }
         }
         "run" => {
             if let Err(e) = cdc_interp::run(&program) {

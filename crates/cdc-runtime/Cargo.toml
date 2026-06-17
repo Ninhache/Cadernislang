@@ -5,8 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
-# En Phase 5, on ajoutera crate-type = ["staticlib", "rlib"] pour le link natif (ADR-002).
-# En Phase 0–4 le crate reste une rlib standard, consommée par l'interpréteur.
+# rlib pour interp/codegen (déps Cargo) + staticlib pour le link natif de `cdc build` (ADR-002).
+[lib]
+crate-type = ["rlib", "staticlib"]
 
 [dependencies]
 rand = "0.8"

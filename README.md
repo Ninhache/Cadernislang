@@ -75,7 +75,7 @@ explicitées).
 ```bash
 cdc run   fichier.cdl   # interprète (cdc-interp)
 cdc check fichier.cdl   # lexer + parser + sema (budget statique), sans exécution
-cdc build fichier.cdl   # compile via LLVM + link cdc-runtime → binaire natif (Phase 5)
+cdc build fichier.cdl   # émet du LLVM IR, compile via clang + link cdc-runtime → binaire natif
 ```
 
 Tout `.cdl` **doit** commencer par la ligne exacte `// gg wp` ; sinon
@@ -84,13 +84,10 @@ Tout `.cdl` **doit** commencer par la ligne exacte `// gg wp` ; sinon
 ## Prérequis & build
 
 - **Rust 2021**, toolchain **1.93+**. `cargo build` à la racine du workspace.
-- **LLVM 18** uniquement pour `cdc build` (backend natif, Phase 5). Sur Arch :
-  ```bash
-  sudo pacman -S --needed llvm18
-  export LLVM_SYS_181_PREFIX=/usr/lib/llvm18
-  ```
-  Le système peut avoir un LLVM plus récent (ex. 22) : `inkwell` ne le supporte pas, on **épingle
-  18** (voir `docs/architecture/ADR-002`). **Sans LLVM, `cdc run` et `cdc check` fonctionnent.**
+- **`clang`** uniquement pour `cdc build` (backend natif) : `cdc-codegen` émet du LLVM IR textuel
+  et le compile avec le `clang` du système (n'importe quelle version récente). Aucune dépendance
+  LLVM au build-time. Sur Arch : `sudo pacman -S --needed clang`. **Sans `clang`, `cdc run` et
+  `cdc check` fonctionnent.** (Historique du choix : `docs/architecture/ADR-002`.)
 - RNG **seedable** pour des exécutions déterministes : pragma `#seed N` en en-tête, ou variable
   d'environnement `CDC_SEED`.
 
@@ -112,7 +109,7 @@ Workspace Cargo, un crate par responsabilité :
 | `cdc-parser` | descente récursive → AST |
 | `cdc-sema` | résolution, typage, analyse statique du budget PA/PM |
 | `cdc-interp` | interpréteur tree-walking |
-| `cdc-codegen` | backend LLVM (`inkwell`, LLVM 18) |
+| `cdc-codegen` | backend natif : émission de LLVM IR textuel → `clang` |
 | `cdc-runtime` | **toute** la jouabilité (PA/PM, suspicion, cooldowns, builtins), partagée interp ↔ LLVM |
 | `cdc` | binaire CLI (driver) |
 
@@ -128,7 +125,7 @@ codegen l'appellent, jamais de duplication divergente.
 | 2 | interpréteur + budget PA/PM + builtins | ✅ |
 | 3 | suspicion (fenêtre K) + cooldowns | ✅ |
 | 4 | analyse statique du budget (`E-PA`/`E-PM`) | ✅ |
-| 5 | backend LLVM natif (`cdc build`) | ⏳ (nécessite LLVM 18) |
+| 5 | backend natif (`cdc build` via IR textuel + `clang`) | ✅ |
 | 6 | bonus : dérive de patch (`perso`/`pano`) | ⏳ optionnel |
 
 ## Licence

@@ -1,9 +1,23 @@
-# ADR-002 : Backend LLVM épinglé sur LLVM 18 (via `inkwell`)
+# ADR-002 : Backend LLVM natif (révisé : IR textuel + `clang`)
 
-> **Status** : Accepted
-> **Date** : 2026-06-16
+> **Status** : Superseded in part — voir « ⚠️ Révision 2026-06-17 »
+> **Date** : 2026-06-16 (révisé 2026-06-17)
 > **Deciders** : Ninhache, Claude
 > **Composants affectés** : `cdc-codegen`, `cdc-runtime` (link), build/CI
+
+> **⚠️ Révision 2026-06-17 — abandon d'`inkwell`, pivot vers l'IR textuel + `clang`.**
+> Le pin `inkwell`/`llvm-sys` (ci-dessous) **ne fonctionne pas sur cette machine** : le paquet Arch
+> `llvm18` ne fournit pas le jeu complet de libs **statiques** (`libLLVMCore.a`, …), et
+> `llvm-sys 180.0.0` n'accepte qu'un **link statique** (pas de mode dynamique). Le build de
+> `llvm-sys` échoue donc avant même de compiler notre code.
+>
+> **Décision révisée :** `cdc-codegen` **n'utilise plus `inkwell`/`llvm-sys`**. Il **émet du LLVM
+> IR textuel** (`.ll`) et le compile avec le **`clang` du système** (LLVM 22 ici), en liant la
+> staticlib `cdc-runtime`. Avantages : aucune dépendance LLVM au build-time (le workspace compile
+> partout), vérifiable sur cette machine, et `cdc build` produit bien un binaire natif (§9.6 validé).
+> Contrainte : `clang` requis **au runtime** de `cdc build` (pas pour `run`/`check`). C'était
+> l'« Option 2 » envisagée ci-dessous, retenue car l'environnement l'impose.
+> (NB : la variable `llvm-sys` correcte aurait été `LLVM_SYS_180_PREFIX`, pas `181`.)
 
 ## Context
 

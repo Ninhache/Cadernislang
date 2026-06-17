@@ -14,3 +14,4 @@ cdc-lexer = { path = "../cdc-lexer" }
 cdc-parser = { path = "../cdc-parser" }
 cdc-sema = { path = "../cdc-sema" }
 cdc-interp = { path = "../cdc-interp" }
+cdc-codegen = { path = "../cdc-codegen" }

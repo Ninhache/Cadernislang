@@ -46,15 +46,28 @@ fn header_absent_refuse() {
 }
 
 #[test]
-fn build_affiche_banniere() {
-    let f = write_temp("banner", "// gg wp\nconnexion {}\n");
+fn build_produit_un_binaire() {
+    // `cdc build` génère un binaire natif via clang (ADR-002). Ignoré si clang absent.
+    let clang = Command::new("clang")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if !clang {
+        eprintln!("clang absent — test build ignoré");
+        return;
+    }
+    let f = write_temp("buildok", "// gg wp\nconnexion { up \"ok\" }\n");
     let out = cdc().arg("build").arg(&f).output().unwrap();
-    let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
-        stdout.contains("cadernis compiler — gg wp"),
-        "bannière attendue absente, stdout = {stdout:?}"
+        out.status.success(),
+        "cdc build devrait réussir : {}",
+        String::from_utf8_lossy(&out.stderr)
     );
     let _ = std::fs::remove_file(&f);
+    if let Some(stem) = f.file_stem().and_then(|s| s.to_str()) {
+        let _ = std::fs::remove_file(stem);
+    }
 }
 
 #[test]

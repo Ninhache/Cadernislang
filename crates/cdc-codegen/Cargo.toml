@@ -5,9 +5,8 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
-# La dépendance `inkwell` (feature `llvm18-1`, ADR-002) n'est AJOUTÉE qu'en Phase 5 : elle exige
-# LLVM 18 installé. La laisser hors du scaffold garde tout le workspace buildable sans LLVM.
-
+# Backend natif par émission d'IR textuel compilé par `clang` (ADR-002) : aucune dépendance
+# LLVM au build-time. `clang` n'est requis qu'au runtime de `cdc build`.
 [dependencies]
 cdc-ast = { path = "../cdc-ast" }
 cdc-runtime = { path = "../cdc-runtime" }
