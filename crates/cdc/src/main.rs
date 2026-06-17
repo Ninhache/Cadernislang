@@ -90,7 +90,10 @@ fn dispatch(args: &[String]) -> Result<(), ()> {
             println!("note: backend LLVM non encore implémenté (Phase 5) — AST construit.");
         }
         "run" => {
-            println!("note: interpréteur non encore implémenté (Phase 2) — AST construit.");
+            if let Err(e) = cdc_interp::run(&program) {
+                eprintln!("error: {e}");
+                return Err(());
+            }
         }
         "check" => {
             // SPEC §8 / issue #8 : `cdc check` affiche l'AST en debug.

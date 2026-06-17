@@ -68,3 +68,35 @@ fn sans_argument_echoue() {
     let out = cdc().output().unwrap();
     assert!(!out.status.success());
 }
+
+#[test]
+fn run_golden_aboutit() {
+    // §9.1 (partiel Phase 2 : sans suspicion/cd) — le farm aboutit, code retour 0.
+    let golden = format!("{}/../../examples/dopeuls.cdl", env!("CARGO_MANIFEST_DIR"));
+    let out = cdc()
+        .arg("run")
+        .arg(&golden)
+        .env("CDC_SEED", "7")
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "run devrait réussir (rc 0)");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("objectif atteint gg"),
+        "sortie attendue absente, stdout = {stdout:?}"
+    );
+}
+
+#[test]
+fn run_calcul_pur() {
+    // Couche calcul (§1.5) : exécution déterministe sans action observable.
+    let somme = format!("{}/../../examples/somme.cdl", env!("CARGO_MANIFEST_DIR"));
+    let out = cdc()
+        .arg("run")
+        .arg(&somme)
+        .env("CDC_SEED", "7")
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    assert!(String::from_utf8_lossy(&out.stdout).contains("fin du calcul"));
+}
