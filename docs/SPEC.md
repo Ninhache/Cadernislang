@@ -38,8 +38,8 @@ Le programme s'exécute par **tours de jeu**.
 |---|---|
 | Appel de `bot` | son `coute N pa` déclaré |
 | Affectation (`=`, `+=`, `-=`) | 1 PA |
-| `up(...)` | 1 PA |
-| `afk(...)` / `afk rand(...)` | 0 PA (avance l'horloge → §1.2) |
+| `up <txt>` | 1 PA |
+| `afk <ms>` | 0 PA (avance l'horloge → §1.2) |
 | Comparaison, opérateur booléen (`et`/`ou`/`pas`), lecture de `pa`/`pm`/`suspicion`, `cd_pret(...)`, lecture de variable **dans une condition** | **0 PA** (*perception*) |
 | Lecture d'une variable d'un scope plus externe (hors condition) | **1 PM par niveau de scope franchi** (voir §1.1.b) |
 
@@ -61,11 +61,13 @@ déclaré. Le corps s'exécute « instantanément » et ne consomme pas le budge
 > le **nombre de scopes lexicaux franchis** entre le bloc où la lecture a lieu et le bloc qui
 > déclare `v`. Une lecture d'une variable déclarée dans le scope courant coûte 0 PM.
 >
-> Comptage : chaque `{ ... }` (`tour`, `farm`, `grind`, `detect`/`sinon`, corps de `bot`,
-> `connexion`) introduit un scope. On compte les frontières franchies en remontant du site de
-> lecture jusqu'au scope déclarant (exclus). Exemple golden : `total` est déclaré dans
-> `connexion` ; lu dans `total += tuer_dopeul()` situé dans `tour ⊂ farm ⊂ connexion` → 2 scopes
-> franchis (`tour`, `farm`) → 2 PM ≤ `MAX_PM = 3`. ✅
+> Comptage (règle uniforme) : **chaque** bloc `{ ... }` introduit un scope — `tour`, `farm`,
+> `grind`, `detect`/`sinon`, corps de `bot`, `connexion`. On compte **tous** les blocs franchis en
+> remontant du site de lecture jusqu'au scope déclarant (exclus). Exemple golden : `total` est
+> déclaré dans `connexion` ; lu dans `total += tuer_dopeul()` situé dans
+> `detect ⊂ tour ⊂ farm ⊂ connexion` → **3 blocs franchis** (`detect`, `tour`, `farm`) →
+> **3 PM = `MAX_PM`**. ✅ Pile à la limite : ajouter un niveau d'imbrication ferait échouer la
+> vérif PM — illustration directe de la pression « déplacement vers la donnée ».
 >
 > Une **écriture** (`total += …`) lit puis écrit : le coût PM de la partie lecture s'applique ;
 > l'affectation elle-même coûte 1 PA (déjà dans la table). Les lectures **en condition** sont de
@@ -81,6 +83,12 @@ error[E-PM]: tour trop gourmand — 4 PM demandés, budget max 3
 
 Pour les coûts dynamiques (boucle dans un `tour`), vérification **au runtime** → panic
 `PaInsuffisant` / `PmInsuffisant`.
+
+**Coût statique d'un `tour` avec branches.** Le coût retenu est celui du **pire chemin** : pour un
+`detect … { A } sinon { B }`, `coût = max(coût(A), coût(B))`. Une boucle bornée `grind`
+statiquement connue est dépliée au pire cas si calculable ; sinon le `tour` est traité comme
+dynamique (vérif runtime). Le golden : branche `detect` = 4 PA (appel) + 1 PA (`+=`) + 3 PM ;
+branche `sinon` = `afk` (0 PA) → `max` = 5 PA, 3 PM. ✅
 
 ### 1.2 — Jauge de suspicion : le déterminisme est illégal
 
@@ -107,8 +115,10 @@ seuil `SEUIL_BAN = 80`.
 > indéfiniment → Turing-complet (voir §1.5). Le puzzle de furtivité n'existe que sur la couche
 > action de jeu.
 >
-> `id_action` n'est défini que pour les actions observables : identifiant du `bot` appelé, ou un id
-> dédié pour `afk`, ou un id dédié pour `up`.
+> `id_action` n'est défini que pour les actions observables, avec une granularité **par type** :
+> un id unique partagé par tous les `afk`, un id unique partagé par tous les `up`, et un id distinct
+> **par `bot`** (l'id du bot appelé). La **première** action observable (pas de précédente) a un
+> `bucket = 0` (0 ms écoulés).
 
 **Horloge virtuelle.**
 
@@ -147,8 +157,10 @@ error: compte banni
 
 `bot f() coute N pa, cd M { ... }` → après un appel à `f`, `f` est indisponible pendant `M` tours.
 
-- Table runtime : `{ id_bot -> n° de tour de disponibilité }`.
-- Builtin `cd_pret(f) -> flag` : vrai si `f` est appelable ce tour (perception, 0 PA).
+- Table runtime : `{ id_bot -> n° de tour de disponibilité }`. Appel de `f` au tour `T` →
+  `dispo[f] = T + M`. `f` est donc rappelable au tour `T + M` (et indisponible pour `T+1 … T+M-1`).
+  `cd 0` = rappelable le tour même.
+- Builtin `cd_pret(f) -> flag` : vrai si `tour_courant >= dispo[f]` (perception, 0 PA).
 - Appeler un `bot` en cooldown → erreur runtime :
 
 ```
@@ -231,11 +243,21 @@ Littéraux numériques : underscores autorisés et ignorés (`1_000_000`).
 ## 3. Mots-clés & builtins
 
 **Keywords :** `bot`, `coute … pa`, `cd …`, `connexion`, `serveur`, `tour`, `passer`, `farm`,
-`grind`, `loot` (var mutable), `ban` (constante), `gg` (return), `detect` (if), `sinon` (else),
+`grind` (+ contextuels `de` / `a`), `loot` (var mutable), `ban` (constante), `gg` (return),
+`detect` (if), `sinon` (else), `up` / `afk` (statements à mot-clé, voir ci-dessous),
 `et` / `ou` / `pas`, `pa` / `pm` / `suspicion` (pseudo-variables runtime en lecture seule).
 
-**Builtins (fournis par `cdc-runtime`) :** `up(txt)`, `afk(ms)`, `afk rand(a, b)`,
-`rand(a, b) -> kamas`, `cd_pret(bot) -> flag`, `butin(min, max) -> kamas` (stub RNG seedable).
+> **⚠️ Déviation 7 (C2 — syntaxe `up`/`afk`).** La spec d'origine notait `up(txt)` / `afk(ms)`
+> (appel parenthésé), mais le golden utilise `up "..."` et `afk 3000` / `afk rand(2000,5000)`
+> (mot-clé + argument nu). On tranche : **`up` et `afk` sont des *statements* à mot-clé prenant un
+> seul `expr`**, sans parenthèses. `afk rand(2000, 5000)` n'est PAS une forme spéciale : c'est
+> `afk <expr>` où `expr` est l'appel du builtin `rand(2000, 5000)`. `afk 3000` est `afk <expr>`
+> avec un littéral. Le bucket de suspicion est calculé sur la valeur ms effective, quelle que soit
+> sa provenance.
+
+**Builtins (fonctions, fournies par `cdc-runtime`, appel parenthésé) :** `rand(a, b) -> kamas`,
+`cd_pret(bot) -> flag` (l'argument est le nom d'un `bot`, pas une valeur),
+`butin(min, max) -> kamas` (stub RNG seedable).
 
 ---
 
@@ -264,6 +286,10 @@ Littéraux numériques : underscores autorisés et ignorés (`1_000_000`).
 
 ## 6. Grammaire (EBNF, indicative)
 
+Les commentaires `// …` (jusqu'à la fin de ligne) sont des *trivia* ignorés **partout** par le
+lexer. Cas particulier easter egg : la **ligne 1** du fichier doit être exactement `// gg wp`
+(§4) ; au-delà, les commentaires sont libres.
+
 ```ebnf
 programme   = entete , { pragma } , { item } ;
 entete      = "// gg wp" , NEWLINE ;
@@ -284,7 +310,11 @@ type        = "kamas" | "flag" | "txt" | "afk_total" | IDENT ;
 
 bloc        = "{" , { stmt } , "}" ;
 stmt        = decl_loot | decl_ban | affect | tour_stmt | passer_stmt
-            | farm_stmt | grind_stmt | detect_stmt | gg_stmt | expr_stmt ;
+            | farm_stmt | grind_stmt | detect_stmt | gg_stmt
+            | up_stmt | afk_stmt | expr_stmt ;
+
+up_stmt     = "up"  , expr ;     (* expr de type txt *)
+afk_stmt    = "afk" , expr ;     (* expr de type kamas (ms) ; ex: afk 3000 | afk rand(2000,5000) *)
 
 decl_loot   = "loot" , IDENT , [ ":" , type ] , "=" , expr ;
 decl_ban    = "ban"  , IDENT , [ ":" , type ] , "=" , expr ;
@@ -298,9 +328,26 @@ gg_stmt     = "gg" , [ expr ] ;
 expr_stmt   = expr ;
 
 expr        = (* arith +,-,*,/ ; comparaisons <,<=,>,>=,==,!= ;
-                et/ou/pas ; appels f(args) ; afk rand(a,b) ;
+                et/ou/pas ; appels builtin f(args) ; appels de bot ;
                 littéraux kamas/flag/txt ; pa/pm/suspicion ; IDENT *) ;
 ```
+
+**Précédence des opérateurs** (du plus fort au plus faible), tous **associatifs à gauche** sauf le
+`pas` unaire :
+
+1. `pas` (négation unaire), `-` unaire
+2. `*` `/`
+3. `+` `-`
+4. comparaisons `<` `<=` `>` `>=` `==` `!=`
+5. `et`
+6. `ou`
+
+**`grind IDENT de A a B { … }`** : boucle bornée sur `IDENT`, **bornes incluses** `[A, B]`, pas de
+`+1`. Si `A > B`, zéro itération. `IDENT` est une variable de boucle en lecture seule, scope = le
+corps. (`de` / `a` sont des keywords contextuels.)
+
+**`serveur IDENT`** : déclaration de namespace **no-op en v1** (purement décorative ; aucun effet
+sémantique). Réservé pour un éventuel système de modules ultérieur.
 
 ---
 
@@ -393,7 +440,7 @@ connexion {
 }
 ```
 
-**Comportement attendu :** le `tour` coûte `4 (appel) + 1 (+=) = 5 PA ≤ 6` et `2 PM ≤ 3` → passe
+**Comportement attendu :** le `tour` coûte `4 (appel) + 1 (+=) = 5 PA ≤ 6` et `3 PM = MAX_PM` → passe
 la vérif statique. `tuer_dopeul` (cd 2) n'est pas spammable → certains tours partent en `afk`. Les
 `afk rand(...)` dispersent les buckets → suspicion basse → le farm aboutit.
 
@@ -410,3 +457,22 @@ atteint. Ce test prouve que la mécanique de suspicion est réelle (cf. Déviati
   claires (ligne/colonne).
 - Constantes de gameplay centralisées dans `cdc-runtime::config`, surchargeables par pragma (§5).
 - Dépendances minimales : `logos`, `inkwell`, `rand`.
+
+---
+
+## 12. Diagnostics & codes de retour
+
+| Diagnostic | Quand | Phase | Sortie / code retour |
+|---|---|---|---|
+| `error: candidature contributeur refusée` | ligne 1 ≠ `// gg wp` | compile (toutes commandes) | code ≠ 0, aucune compilation |
+| erreurs lexer/parser (ligne:col) | syntaxe invalide | compile | code ≠ 0 |
+| erreurs de résolution/typage (ligne:col) | sema | `check`/`run`/`build` | code ≠ 0 |
+| `error[E-PA]: tour trop gourmand — N PA demandés, budget max M` | `tour` statiquement > MAX_PA | sema | code ≠ 0 |
+| `error[E-PM]: tour trop gourmand — N PM demandés, budget max M` | `tour` statiquement > MAX_PM | sema | code ≠ 0 |
+| panic `PaInsuffisant` / `PmInsuffisant` | dépassement budget dynamique | runtime | code ≠ 0 |
+| `error: sort en cooldown` | appel d'un `bot` indisponible | runtime | code ≠ 0 |
+| `error: compte banni` | `suspicion >= SEUIL_BAN` | runtime | **terminaison immédiate**, état effacé, code ≠ 0, pas de `gg`/cleanup |
+
+**Code de retour :** `0` = exécution normale terminée ; **tout** diagnostic ci-dessus ⇒ code ≠ 0.
+Les tests d'acceptation (§9) fixent `CDC_SEED` pour rendre §9.1 (succès) et §9.2 (ban)
+déterministes.
