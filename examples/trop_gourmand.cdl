@@ -1,0 +1,15 @@
+// gg wp
+// Tour à 7 affectations = 7 PA > MAX_PA(6) : rejeté statiquement par cdc check (SPEC §9.3).
+connexion {
+    loot x : kamas = 0
+    tour {
+        x = 1
+        x = 2
+        x = 3
+        x = 4
+        x = 5
+        x = 6
+        x = 7
+    }
+    passer
+}
