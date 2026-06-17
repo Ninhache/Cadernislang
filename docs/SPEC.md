@@ -61,13 +61,27 @@ déclaré. Le corps s'exécute « instantanément » et ne consomme pas le budge
 > le **nombre de scopes lexicaux franchis** entre le bloc où la lecture a lieu et le bloc qui
 > déclare `v`. Une lecture d'une variable déclarée dans le scope courant coûte 0 PM.
 >
-> Comptage (règle uniforme) : **chaque** bloc `{ ... }` introduit un scope — `tour`, `farm`,
-> `grind`, `detect`/`sinon`, corps de `bot`, `connexion`. On compte **tous** les blocs franchis en
-> remontant du site de lecture jusqu'au scope déclarant (exclus). Exemple golden : `total` est
-> déclaré dans `connexion` ; lu dans `total += tuer_dopeul()` situé dans
-> `detect ⊂ tour ⊂ farm ⊂ connexion` → **3 blocs franchis** (`detect`, `tour`, `farm`) →
-> **3 PM = `MAX_PM`**. ✅ Pile à la limite : ajouter un niveau d'imbrication ferait échouer la
-> vérif PM — illustration directe de la pression « déplacement vers la donnée ».
+> Comptage : nombre de blocs `{ ... }` franchis entre le site de lecture et le scope déclarant.
+>
+> **⚠️ Déviation 8 (PM « cache par tour », remplace le coût « distance × accès »).** Un coût
+> proportionnel à la profondeur **et** facturé à chaque accès rend le langage inutilisable : une
+> simple somme `acc += i` (2 variables externes, distance 2) coûterait déjà 4 PM > `MAX_PM`, donc
+> aucune boucle de calcul ordinaire ne passerait — ce qui contredit l'objectif « écrivable »
+> (§1.5). **Règle retenue (model B) :**
+>
+> > Lire une variable déclarée **hors du `tour` courant** coûte **1 PM, payé une seule fois par
+> > tour** pour cette variable ; les accès suivants dans le même tour sont **gratuits** (« on s'est
+> > déplacé une fois, la donnée est désormais sous la main »). Une variable locale au tour coûte
+> > 0 PM. Les lectures **en condition** sont de la perception → 0 PM. Le coût est **indépendant de
+> > la profondeur** d'imbrication.
+>
+> C'est fidèle à la narration d'origine (« mettre en cache pour ne pas repayer ») et supprime
+> l'ambiguïté C1 (le `detect` ne change rien). Exemples : golden → `total` est la seule variable
+> externe lue dans le tour ⇒ **1 PM**. `somme.cdl` → `i` et `acc` ⇒ **2 PM ≤ 3**. Un tour touchant
+> **> `MAX_PM` variables externes distinctes** échoue (`E-PM` statique / `PmInsuffisant` runtime).
+>
+> Une **écriture** `total += …` lit puis écrit : la partie lecture déclenche le coût PM (une fois
+> par tour) ; l'affectation coûte 1 PA (table §1.1).
 >
 > Une **écriture** (`total += …`) lit puis écrit : le coût PM de la partie lecture s'applique ;
 > l'affectation elle-même coûte 1 PA (déjà dans la table). Les lectures **en condition** sont de
@@ -87,8 +101,8 @@ Pour les coûts dynamiques (boucle dans un `tour`), vérification **au runtime**
 **Coût statique d'un `tour` avec branches.** Le coût retenu est celui du **pire chemin** : pour un
 `detect … { A } sinon { B }`, `coût = max(coût(A), coût(B))`. Une boucle bornée `grind`
 statiquement connue est dépliée au pire cas si calculable ; sinon le `tour` est traité comme
-dynamique (vérif runtime). Le golden : branche `detect` = 4 PA (appel) + 1 PA (`+=`) + 3 PM ;
-branche `sinon` = `afk` (0 PA) → `max` = 5 PA, 3 PM. ✅
+dynamique (vérif runtime). Le golden : branche `detect` = 4 PA (appel) + 1 PA (`+=`) + 1 PM (`total`) ;
+branche `sinon` = `afk` (0 PA) → `max` = 5 PA, 1 PM. ✅
 
 ### 1.2 — Jauge de suspicion : le déterminisme est illégal
 
@@ -440,7 +454,7 @@ connexion {
 }
 ```
 
-**Comportement attendu :** le `tour` coûte `4 (appel) + 1 (+=) = 5 PA ≤ 6` et `3 PM = MAX_PM` → passe
+**Comportement attendu :** le `tour` coûte `4 (appel) + 1 (+=) = 5 PA ≤ 6` et `1 PM ≤ 3` (lecture de `total`) → passe
 la vérif statique. `tuer_dopeul` (cd 2) n'est pas spammable → certains tours partent en `afk`. Les
 `afk rand(...)` dispersent les buckets → suspicion basse → le farm aboutit.
 
