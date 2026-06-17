@@ -1,0 +1,30 @@
+// gg wp
+// Variante de dopeuls.cdl avec un afk FIXE (3000) au lieu de afk rand(...).
+// Le délai constant retombe toujours dans le même bucket → la suspicion grimpe → BAN.
+// Doit produire « error: compte banni » et un code retour ≠ 0 (SPEC §9.2).
+serveur incarnam
+
+bot tuer_dopeul() : kamas, coute 4 pa, cd 2 {
+    gg butin(50, 200)
+}
+
+connexion {
+    loot total : kamas = 0
+
+    farm total < 1_000_000 et suspicion < 80 {
+        tour {
+            detect pa >= 4 et cd_pret(tuer_dopeul) {
+                total += tuer_dopeul()
+            } sinon {
+                afk 3000
+            }
+        }
+        passer
+    }
+
+    detect total >= 1_000_000 {
+        up "objectif atteint gg"
+    } sinon {
+        up "compte banni rip"
+    }
+}

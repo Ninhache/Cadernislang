@@ -27,6 +27,10 @@ pub enum Value {
 pub enum RunError {
     /// Dépassement de budget (SPEC §1.1).
     Fault(Fault),
+    /// `suspicion >= SEUIL_BAN` (SPEC §1.2) — message exact « compte banni ».
+    Banni,
+    /// Appel d'un `bot` en cooldown (SPEC §1.3) — message exact « sort en cooldown ».
+    Cooldown,
     /// Erreur générique (variable indéfinie, type, etc.).
     Msg(String),
 }
@@ -35,6 +39,8 @@ impl std::fmt::Display for RunError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RunError::Fault(x) => write!(f, "{x}"),
+            RunError::Banni => write!(f, "compte banni"),
+            RunError::Cooldown => write!(f, "sort en cooldown"),
             RunError::Msg(m) => write!(f, "{m}"),
         }
     }
@@ -257,12 +263,12 @@ impl Interp {
                     self.rt.spend_pa(self.rt.up_pa()).map_err(RunError::Fault)?;
                 }
                 let s = to_display(&v);
-                self.rt.up(&s);
+                self.rt.up(&s).map_err(|_| RunError::Banni)?;
                 Ok(Flow::Normal)
             }
             Stmt::Afk(e) => {
                 let ms = as_int(&self.eval(e)?)?;
-                self.rt.afk(ms); // 0 PA
+                self.rt.afk(ms).map_err(|_| RunError::Banni)?; // 0 PA
                 Ok(Flow::Normal)
             }
             Stmt::Expr(e) => {
@@ -363,6 +369,10 @@ impl Interp {
                     .get(name)
                     .cloned()
                     .ok_or_else(|| RunError::Msg(format!("bot inconnu « {name} »")))?;
+                // cooldown : appeler un bot indisponible est fatal (SPEC §1.3, §9.4).
+                if !self.rt.cd_pret(name) {
+                    return Err(RunError::Cooldown);
+                }
                 let mut argvals = Vec::with_capacity(args.len());
                 for a in args {
                     argvals.push(self.eval(a)?);
@@ -372,6 +382,9 @@ impl Interp {
                         .spend_pa(bot.cost_pa.unwrap_or(0))
                         .map_err(RunError::Fault)?;
                 }
+                // action observable → suspicion (peut bannir), puis mise en cooldown.
+                self.rt.act_bot(name).map_err(|_| RunError::Banni)?;
+                self.rt.set_cooldown(name, bot.cd.unwrap_or(0));
                 self.call_bot(&bot, argvals)
             }
         }
@@ -474,6 +487,28 @@ connexion {
 }";
         let e = run_src(src).unwrap_err();
         assert!(matches!(e, RunError::Fault(Fault::PaInsuffisant { .. })));
+    }
+
+    #[test]
+    fn variante_afk_fixe_bannit() {
+        // §9.2 : afk 3000 fixe → suspicion grimpe → BAN avant d'atteindre l'objectif.
+        let src = include_str!("../../../examples/dopeuls_ban.cdl");
+        assert_eq!(run_src(src), Err(RunError::Banni));
+    }
+
+    #[test]
+    fn appel_bot_en_cooldown() {
+        // §9.4 : deux appels du même bot (cd 2) dans le même tour → « sort en cooldown ».
+        let src = "// gg wp
+bot f() : kamas, coute 1 pa, cd 2 { gg 1 }
+connexion {
+    tour {
+        loot a = f()
+        loot b = f()
+    }
+    passer
+}";
+        assert_eq!(run_src(src), Err(RunError::Cooldown));
     }
 
     #[test]
