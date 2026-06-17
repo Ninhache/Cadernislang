@@ -10,7 +10,7 @@
 
 use cdc_ast::*;
 use cdc_runtime::{Config, Fault, Runtime};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 /// Valeur runtime.
 #[derive(Clone, Debug, PartialEq)]
@@ -61,8 +61,8 @@ pub struct Interp {
     /// Indice de scope marquant le début du tour courant : un scope d'indice `< tour_base`
     /// est « extérieur au tour » (coûte du PM au premier accès).
     tour_base: usize,
-    /// Variables externes déjà payées (PM) dans le tour courant.
-    paid_pm: HashSet<String>,
+    /// Identifiants PM stables par nom de variable (passés au runtime `pm_touch`, model B).
+    pm_ids: HashMap<String, u64>,
     /// Mode perception : lectures gratuites (conditions). SPEC §1.1.
     perception: bool,
 }
@@ -104,7 +104,7 @@ pub fn run(program: &Program) -> Result<(), RunError> {
         env: Vec::new(),
         in_tour: false,
         tour_base: 0,
-        paid_pm: HashSet::new(),
+        pm_ids: HashMap::new(),
         perception: false,
     };
     it.exec_block(&connexion)?;
@@ -118,17 +118,25 @@ impl Interp {
         self.env.iter().rposition(|s| s.contains_key(name))
     }
 
-    /// Lit une variable. Charge 1 PM au premier accès d'une variable externe au tour (model B).
+    /// Identifiant PM stable pour un nom de variable.
+    fn pm_id(&mut self, name: &str) -> u64 {
+        if let Some(id) = self.pm_ids.get(name) {
+            return *id;
+        }
+        let id = self.pm_ids.len() as u64;
+        self.pm_ids.insert(name.to_string(), id);
+        id
+    }
+
+    /// Lit une variable. Charge 1 PM au premier accès d'une variable externe au tour (model B,
+    /// logique portée par `cdc_runtime::Runtime::pm_touch` — invariant §9.7).
     fn read_var(&mut self, name: &str) -> Result<Value, RunError> {
         let idx = self
             .lookup(name)
             .ok_or_else(|| RunError::Msg(format!("variable indéfinie « {name} »")))?;
-        if self.in_tour
-            && !self.perception
-            && idx < self.tour_base
-            && self.paid_pm.insert(name.to_string())
-        {
-            self.rt.spend_pm(1).map_err(RunError::Fault)?;
+        if self.in_tour && !self.perception && idx < self.tour_base {
+            let id = self.pm_id(name);
+            self.rt.pm_touch(id).map_err(RunError::Fault)?;
         }
         Ok(self.env[idx].get(name).cloned().expect("présence vérifiée"))
     }
@@ -193,14 +201,12 @@ impl Interp {
             }
             Stmt::Tour(block) => {
                 let (saved_in, saved_base) = (self.in_tour, self.tour_base);
-                let saved_paid = std::mem::take(&mut self.paid_pm);
-                self.rt.start_turn();
+                self.rt.start_turn(); // régénère le budget et vide le cache PM du tour
                 self.in_tour = true;
                 self.tour_base = self.env.len();
                 let flow = self.exec_block(block);
                 self.in_tour = saved_in;
                 self.tour_base = saved_base;
-                self.paid_pm = saved_paid;
                 flow
             }
             Stmt::Passer => {
@@ -394,7 +400,6 @@ impl Interp {
         // le corps s'exécute « instantanément », hors budget (SPEC §1.1).
         let saved_env = std::mem::take(&mut self.env);
         let (saved_in, saved_base) = (self.in_tour, self.tour_base);
-        let saved_paid = std::mem::take(&mut self.paid_pm);
         self.in_tour = false;
 
         let mut scope = HashMap::new();
@@ -407,7 +412,6 @@ impl Interp {
         self.env = saved_env;
         self.in_tour = saved_in;
         self.tour_base = saved_base;
-        self.paid_pm = saved_paid;
 
         Ok(match flow? {
             Flow::Return(v) => v,

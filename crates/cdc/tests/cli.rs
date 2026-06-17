@@ -46,14 +46,13 @@ fn header_absent_refuse() {
 }
 
 #[test]
-fn build_affiche_banniere() {
+fn build_sans_llvm_signale_backend_indisponible() {
+    // La bannière est émise par le binaire PRODUIT (§4.2), testée dans l'acceptation Phase 5.
+    // Sans la feature `llvm`, `cdc build` doit échouer proprement (backend non compilé).
     let f = write_temp("banner", "// gg wp\nconnexion {}\n");
     let out = cdc().arg("build").arg(&f).output().unwrap();
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(
-        stdout.contains("cadernis compiler — gg wp"),
-        "bannière attendue absente, stdout = {stdout:?}"
-    );
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("backend LLVM non compilé"));
     let _ = std::fs::remove_file(&f);
 }
 

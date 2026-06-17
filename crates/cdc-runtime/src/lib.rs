@@ -4,12 +4,13 @@
 //! Phase 3 : moteur de suspicion (fenêtre glissante K, buckets, BAN) sur les **actions
 //! observables** (bot/afk/up, Déviation 6) et cooldowns par `bot`.
 
+pub mod cabi;
 pub mod config;
 
 pub use config::Config;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Faute runtime : dépassement de budget dans un `tour` (SPEC §1.1, §12).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -72,6 +73,9 @@ pub struct Runtime {
     acc_ms: u64,
     bot_ids: HashMap<String, u32>,
     next_bot_id: u32,
+    /// Variables externes déjà payées (1 PM) ce tour — model B (SPEC §1.1.b, Déviation 8).
+    /// Vidé à chaque `start_turn`. Partagé interp ↔ codegen via [`Runtime::pm_touch`] (§9.7).
+    paid_pm: HashSet<u64>,
 
     // --- cooldowns (SPEC §1.3) ---
     cd_table: HashMap<String, u64>,
@@ -94,6 +98,7 @@ impl Runtime {
             acc_ms: 0,
             bot_ids: HashMap::new(),
             next_bot_id: 0,
+            paid_pm: HashSet::new(),
             cd_table: HashMap::new(),
             cfg,
         }
@@ -119,10 +124,23 @@ impl Runtime {
 
     // ---- budget PA/PM (SPEC §1.1) ----
 
-    /// Régénère le budget au plein (début de tour). SPEC §1.1.
+    /// Régénère le budget au plein (début de tour) et vide le cache PM du tour. SPEC §1.1.
     pub fn start_turn(&mut self) {
         self.pa = self.cfg.max_pa;
         self.pm = self.cfg.max_pm;
+        self.paid_pm.clear();
+    }
+
+    /// Déplacement vers une variable externe (model B) : débite **1 PM la première fois** que
+    /// `var_id` est touchée dans le tour courant ; gratuit ensuite. SPEC §1.1.b (Déviation 8).
+    ///
+    /// # Erreurs
+    /// [`Fault::PmInsuffisant`] si le budget PM est épuisé.
+    pub fn pm_touch(&mut self, var_id: u64) -> Result<(), Fault> {
+        if self.paid_pm.insert(var_id) {
+            self.spend_pm(1)?;
+        }
+        Ok(())
     }
 
     /// Fin de tour : avance le compteur de tours. SPEC §1.1 / §1.3.
