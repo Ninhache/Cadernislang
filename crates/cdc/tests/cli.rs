@@ -46,14 +46,28 @@ fn header_absent_refuse() {
 }
 
 #[test]
-fn build_sans_llvm_signale_backend_indisponible() {
-    // La bannière est émise par le binaire PRODUIT (§4.2), testée dans l'acceptation Phase 5.
-    // Sans la feature `llvm`, `cdc build` doit échouer proprement (backend non compilé).
-    let f = write_temp("banner", "// gg wp\nconnexion {}\n");
+fn build_produit_un_binaire() {
+    // `cdc build` génère un binaire natif via clang (ADR-002). Ignoré si clang absent.
+    let clang = Command::new("clang")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if !clang {
+        eprintln!("clang absent — test build ignoré");
+        return;
+    }
+    let f = write_temp("buildok", "// gg wp\nconnexion { up \"ok\" }\n");
     let out = cdc().arg("build").arg(&f).output().unwrap();
-    assert!(!out.status.success());
-    assert!(String::from_utf8_lossy(&out.stderr).contains("backend LLVM non compilé"));
+    assert!(
+        out.status.success(),
+        "cdc build devrait réussir : {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let _ = std::fs::remove_file(&f);
+    if let Some(stem) = f.file_stem().and_then(|s| s.to_str()) {
+        let _ = std::fs::remove_file(stem);
+    }
 }
 
 #[test]

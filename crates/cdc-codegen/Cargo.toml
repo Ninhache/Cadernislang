@@ -5,11 +5,8 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
-[features]
-# Backend LLVM optionnel : exige LLVM 18 installé + LLVM_SYS_180_PREFIX (ADR-002).
-llvm = ["dep:inkwell"]
-
+# Backend natif par émission d'IR textuel compilé par `clang` (ADR-002) : aucune dépendance
+# LLVM au build-time. `clang` n'est requis qu'au runtime de `cdc build`.
 [dependencies]
 cdc-ast = { path = "../cdc-ast" }
 cdc-runtime = { path = "../cdc-runtime" }
-inkwell = { version = "0.5", features = ["llvm18-0"], optional = true }

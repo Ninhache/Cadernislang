@@ -9,10 +9,6 @@ license.workspace = true
 name = "cdc"
 path = "src/main.rs"
 
-[features]
-# Active le backend LLVM natif pour `cdc build` (exige LLVM 18, voir ADR-002).
-llvm = ["cdc-codegen/llvm"]
-
 [dependencies]
 cdc-lexer = { path = "../cdc-lexer" }
 cdc-parser = { path = "../cdc-parser" }
