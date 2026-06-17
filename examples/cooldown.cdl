@@ -1,0 +1,14 @@
+// gg wp
+// Deux appels du même bot (cd 3) dans le même tour, sans garde cd_pret :
+// le second appel tombe en cooldown → « error: sort en cooldown » (SPEC §9.4).
+bot frappe() : kamas, coute 1 pa, cd 3 {
+    gg 1
+}
+
+connexion {
+    tour {
+        loot a = frappe()
+        loot b = frappe()
+    }
+    passer
+}
