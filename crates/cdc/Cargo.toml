@@ -1,0 +1,13 @@
+[package]
+name = "cdc"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "cdc"
+path = "src/main.rs"
+
+[dependencies]
+cdc-lexer = { path = "../cdc-lexer" }

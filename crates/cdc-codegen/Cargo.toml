@@ -1,0 +1,13 @@
+[package]
+name = "cdc-codegen"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# La dépendance `inkwell` (feature `llvm18-1`, ADR-002) n'est AJOUTÉE qu'en Phase 5 : elle exige
+# LLVM 18 installé. La laisser hors du scaffold garde tout le workspace buildable sans LLVM.
+
+[dependencies]
+cdc-ast = { path = "../cdc-ast" }
+cdc-runtime = { path = "../cdc-runtime" }

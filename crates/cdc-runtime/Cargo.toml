@@ -1,0 +1,11 @@
+[package]
+name = "cdc-runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# En Phase 5, on ajoutera crate-type = ["staticlib", "rlib"] pour le link natif (ADR-002).
+# En Phase 0–4 le crate reste une rlib standard, consommée par l'interpréteur.
+
+[dependencies]
