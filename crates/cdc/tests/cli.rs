@@ -88,6 +88,32 @@ fn run_golden_aboutit() {
 }
 
 #[test]
+fn run_variante_afk_fixe_bannit() {
+    // §9.2 : afk 3000 fixe → « error: compte banni », code retour ≠ 0, objectif non atteint.
+    let ban = format!(
+        "{}/../../examples/dopeuls_ban.cdl",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let out = cdc()
+        .arg("run")
+        .arg(&ban)
+        .env("CDC_SEED", "7")
+        .output()
+        .unwrap();
+    assert!(!out.status.success(), "doit terminer avec un code ≠ 0");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("compte banni"),
+        "message de ban attendu, stderr = {stderr:?}"
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        !stdout.contains("objectif atteint gg"),
+        "l'objectif ne doit pas être atteint"
+    );
+}
+
+#[test]
 fn run_calcul_pur() {
     // Couche calcul (§1.5) : exécution déterministe sans action observable.
     let somme = format!("{}/../../examples/somme.cdl", env!("CARGO_MANIFEST_DIR"));

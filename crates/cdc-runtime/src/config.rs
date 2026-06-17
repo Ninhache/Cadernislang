@@ -15,7 +15,8 @@ pub struct Config {
     pub decay: u32,
     /// Taille de la fenêtre glissante d'actions observables (SPEC §1.2, Déviation 4). Défaut 8.
     pub fenetre: usize,
-    /// Largeur d'un bucket de délai, en ms (SPEC §1.2). Défaut 500.
+    /// Largeur d'un bucket de délai, en ms (SPEC §1.2, Déviation 9). Défaut 100 : `afk rand`
+    /// doit disperser sur ≥ ~12 buckets pour que le golden survive (sinon dérive → ban).
     pub bucket_ms: u64,
     /// Coût PA d'une affectation (SPEC §1.1). Défaut 1.
     pub assign_pa: i64,
@@ -34,7 +35,7 @@ impl Default for Config {
             penalite: 7,
             decay: 3,
             fenetre: 8,
-            bucket_ms: 500,
+            bucket_ms: 25,
             assign_pa: 1,
             up_pa: 1,
             seed: None,

@@ -139,7 +139,7 @@ seuil `SEUIL_BAN = 80`.
 > **⚠️ Déviation 3.** La spec d'origine parlait d'« horloge réelle ». On utilise une **horloge
 > virtuelle** : `afk(ms)` avance un compteur interne de `ms` ; **aucun `sleep` réel**. Rationale :
 > déterminisme et rapidité des tests (le golden test fait 16 000+ tours). Le `bucket_delai` est
-> `floor(ms_écoulés_depuis_l_action_précédente / 500)` (taille de bucket = 500 ms, configurable).
+> `floor(délai_accumulé / bucket_ms)` (voir Déviation 9 pour `bucket_ms` et l'accumulation).
 
 **Modèle de détection — fenêtre glissante.**
 
@@ -155,9 +155,27 @@ seuil `SEUIL_BAN = 80`.
 > - sinon → `suspicion = max(0, suspicion − DECAY)` (`DECAY = 3`) ;
 > - puis on pousse `(id, bucket)` dans la fenêtre (taille max K, FIFO).
 >
-> Conséquence : `afk 3000` fixe → chaque `afk` retombe sur `(afk, 6)` déjà présent → pénalité
-> répétée → BAN. `afk rand(a, b)` → buckets dispersés → decay dominant → survie. La mécanique
-> devient **réelle et observable**, conformément à l'intention d'origine.
+> Conséquence : `afk 3000` fixe → bucket constant répété → pénalité répétée → BAN. `afk rand(a, b)`
+> → buckets dispersés → decay dominant → survie. La mécanique devient **réelle et observable**,
+> conformément à l'intention d'origine.
+
+**Modèle de délai (accumulation) & taille de bucket.**
+
+> **⚠️ Déviation 9 (timing & dispersion, calibré empiriquement).**
+>
+> *Accumulation du délai.* Seul `afk` introduit du délai. On maintient un délai **accumulé** depuis
+> la dernière action **consommatrice** (`bot`/`up`) : `afk(ms)` l'augmente (et s'enregistre lui-même
+> avec le bucket courant) **sans** le remettre à zéro ; un appel de `bot` ou un `up` s'enregistre
+> avec le bucket courant **puis** remet l'accumulateur à 0. Ainsi, dans le golden, chaque `kill`
+> hérite du bucket de l'`afk` qui l'a précédé : `afk rand` → buckets de kills dispersés (survie),
+> `afk 3000` → buckets de kills constants (ban). Sans cela, les `kill` (instantanés) tomberaient
+> tous dans le bucket 0 et banniraient même avec `afk rand`.
+>
+> *Taille de bucket.* `bucket_ms = 25` par défaut (au lieu de 500). Avec `afk rand(2000, 5000)`,
+> 500 ms ne donne que ~7 buckets distincts : la fenêtre (K=8) collisionne trop souvent et la
+> suspicion **dérive vers le ban malgré la variabilité** (vérifié : ban sur certains seeds). À
+> 25 ms, `afk rand(2000, 5000)` couvre ~120 buckets → survie robuste (0 ban sur 50 seeds), tandis
+> que `afk 3000` reste un bucket fixe → ban systématique. Surchargeable par `#bucket_ms`.
 
 Si `suspicion >= SEUIL_BAN` → le runtime lève **`BAN`** :
 
@@ -229,13 +247,15 @@ soit `n`. Preuve par l'exemple que la logique « ordinaire » est triviale à é
 (appels de `bot`, `afk`, `up` en boucle), il faut introduire de la variabilité (`afk rand`) pour
 tenir la suspicion sous le seuil. C'est le golden test (§10).
 
-**Garantie de survie (calibrage).** Sur la couche action, l'espérance de variation de suspicion par
-action est `PENALITE · p − DECAY · (1 − p)`, où `p ≈ K / B` est la probabilité de collision dans la
-fenêtre (`B` = nombre de buckets distincts atteignables par l'`afk rand`). Avec
-`PENALITE=7, DECAY=3, K=8`, la suspicion reste **bornée en moyenne** dès que `B ≥ 27`, soit une
-plage `afk rand` d'au moins `27 × bucket_ms = 13_500 ms`. La diversité des `id_action` (plusieurs
-sorts entrelacés, comme dans le golden) abaisse `p` davantage. → Il existe toujours une stratégie
-permettant un farm observable **illimité** ; le skill consiste à la trouver.
+**Garantie de survie (calibrage).** Sur la couche action, la dérive moyenne de suspicion par action
+vaut `PENALITE · p − DECAY · (1 − p)`, où `p ≈ (nb d'entrées même-id dans la fenêtre) / B` est la
+probabilité de collision (`B` = nombre de buckets distincts atteignables, ≈ `plage_afk / bucket_ms`).
+Avec `PENALITE=7, DECAY=3` la dérive est négative dès que `p < 0,3`. Mais sur un farm long
+(le golden ≈ 16 000 actions), une dérive faiblement négative ne suffit pas : il faut `p` **petit**
+pour que les excursions n'atteignent jamais le seuil. D'où `bucket_ms = 25` (Déviation 9) :
+`afk rand(2000, 5000)` ⇒ `B ≈ 120`, `p ≈ 0,03` ⇒ survie robuste (0 ban sur 50 seeds), alors que
+`afk 3000` ⇒ `B = 1`, `p = 1` ⇒ ban systématique. → Il existe toujours une stratégie permettant un
+farm observable **illimité** ; le skill consiste à disperser assez les délais.
 
 ---
 
