@@ -75,17 +75,26 @@ fn dispatch(args: &[String]) -> Result<(), ()> {
         return Err(());
     }
 
-    // Phase 0 : pipeline non encore câblé. On confirme juste que l'en-tête passe.
+    // Front-end commun à toutes les commandes (Phase 1) : lexer + parser → AST.
+    let program = match cdc_parser::parse(&source) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("error: {e}");
+            return Err(());
+        }
+    };
+
     match cmd {
         "build" => {
             println!("{BANNER}");
-            println!("note: backend LLVM non encore implémenté (Phase 5) — en-tête validé.");
+            println!("note: backend LLVM non encore implémenté (Phase 5) — AST construit.");
         }
         "run" => {
-            println!("note: interpréteur non encore implémenté (Phase 2) — en-tête validé.");
+            println!("note: interpréteur non encore implémenté (Phase 2) — AST construit.");
         }
         "check" => {
-            println!("ok: en-tête validé (lexer/parser/sema arrivent en Phases 1 & 4).");
+            // SPEC §8 / issue #8 : `cdc check` affiche l'AST en debug.
+            println!("{program:#?}");
         }
         _ => unreachable!("commande déjà validée"),
     }
