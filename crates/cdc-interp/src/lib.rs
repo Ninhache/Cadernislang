@@ -65,6 +65,8 @@ pub struct Interp {
     pm_ids: HashMap<String, u64>,
     /// Mode perception : lectures gratuites (conditions). SPEC §1.1.
     perception: bool,
+    /// Tags `pano` après dérive de patch : (pano, variant) → tag. SPEC §1.4.
+    pano_tags: HashMap<String, HashMap<String, i64>>,
 }
 
 /// Exécute un programme. Le seed RNG vient du pragma `#seed`, sinon de l'env `CDC_SEED`.
@@ -83,9 +85,15 @@ pub fn run(program: &Program) -> Result<(), RunError> {
             }
         }
     }
+    if let Ok(s) = std::env::var("CDC_PATCH_SEED") {
+        if let Ok(n) = s.parse::<u64>() {
+            cfg.patch_seed = n;
+        }
+    }
 
     let mut bots = HashMap::new();
     let mut connexion = None;
+    let mut pano_tags: HashMap<String, HashMap<String, i64>> = HashMap::new();
     for item in &program.items {
         match item {
             Item::Bot(b) => {
@@ -93,6 +101,19 @@ pub fn run(program: &Program) -> Result<(), RunError> {
             }
             Item::Connexion(blk) => connexion = Some(blk.clone()),
             Item::Serveur(_) => {} // no-op (SPEC §6)
+            Item::Pano(p) => {
+                // dérive de patch : tags permutés par le patch_seed (SPEC §1.4).
+                let pins: Vec<Option<i64>> = p.variants.iter().map(|v| v.pin).collect();
+                let tags = cdc_runtime::patch::layout(&pins, cfg.patch_seed)
+                    .map_err(|e| RunError::Msg(format!("pano « {} » : {e}", p.name)))?;
+                let map = p
+                    .variants
+                    .iter()
+                    .zip(tags)
+                    .map(|(v, t)| (v.name.clone(), t))
+                    .collect();
+                pano_tags.insert(p.name.clone(), map);
+            }
         }
     }
     let connexion =
@@ -106,6 +127,7 @@ pub fn run(program: &Program) -> Result<(), RunError> {
         tour_base: 0,
         pm_ids: HashMap::new(),
         perception: false,
+        pano_tags,
     };
     it.exec_block(&connexion)?;
     Ok(())
@@ -312,6 +334,14 @@ impl Interp {
             }
             ExprKind::Binary(op, lhs, rhs) => self.eval_binary(*op, lhs, rhs),
             ExprKind::Call(name, args) => self.eval_call(name, args),
+            ExprKind::Path(ty, member) => {
+                let tag = self
+                    .pano_tags
+                    .get(ty)
+                    .and_then(|m| m.get(member))
+                    .ok_or_else(|| RunError::Msg(format!("variant inconnu « {ty}.{member} »")))?;
+                Ok(Value::Int(*tag))
+            }
         }
     }
 

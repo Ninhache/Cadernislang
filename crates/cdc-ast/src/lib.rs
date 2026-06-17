@@ -28,6 +28,24 @@ pub enum Item {
     Bot(Bot),
     /// `connexion { … }` — point d'entrée (le `main`).
     Connexion(Block),
+    /// `pano Nom { [@N] Variant, … }` — énumération à tags dérivants (SPEC §1.4, Phase 6).
+    Pano(Pano),
+}
+
+/// Déclaration d'énumération `pano`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Pano {
+    pub name: String,
+    pub variants: Vec<Variant>,
+    pub line: u32,
+    pub col: u32,
+}
+
+/// Variant de `pano` : nom + tag épinglé optionnel (`@N`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Variant {
+    pub name: String,
+    pub pin: Option<i64>,
 }
 
 /// Déclaration de `bot` : `bot f(params) [: type] [, coute N pa] [, cd M] { … }`.
@@ -181,4 +199,6 @@ pub enum ExprKind {
     Binary(BinOp, Box<Expr>, Box<Expr>),
     /// Appel `f(args)` : builtin (`rand`/`butin`/`cd_pret`) ou `bot`.
     Call(String, Vec<Expr>),
+    /// `Pano.Variant` → tag (entier, dérivant selon le seed de patch). SPEC §1.4.
+    Path(String, String),
 }

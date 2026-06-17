@@ -96,6 +96,8 @@ struct Cg {
     perception: bool,
     in_main: bool,
     pm_ids: HashMap<String, u64>,
+    /// Tags `pano` après dérive de patch (calculés au build). SPEC §1.4.
+    pano_tags: HashMap<String, HashMap<String, i64>>,
 }
 
 impl Cg {
@@ -114,14 +116,41 @@ impl Cg {
             perception: false,
             in_main: false,
             pm_ids: HashMap::new(),
+            pano_tags: HashMap::new(),
         }
     }
 
     fn emit(mut self, program: &Program) -> Result<String, String> {
+        // seed de patch : pragma #patch_seed, surchargé par l'env CDC_PATCH_SEED (au build).
+        let mut patch_seed = 0u64;
+        for p in &program.pragmas {
+            if p.key == "patch_seed" {
+                patch_seed = p.value as u64;
+            }
+        }
+        if let Ok(s) = std::env::var("CDC_PATCH_SEED") {
+            if let Ok(n) = s.parse::<u64>() {
+                patch_seed = n;
+            }
+        }
         for item in &program.items {
-            if let Item::Bot(b) = item {
-                self.bot_meta
-                    .insert(b.name.clone(), (b.cost_pa.unwrap_or(0), b.cd.unwrap_or(0)));
+            match item {
+                Item::Bot(b) => {
+                    self.bot_meta
+                        .insert(b.name.clone(), (b.cost_pa.unwrap_or(0), b.cd.unwrap_or(0)));
+                }
+                Item::Pano(p) => {
+                    let pins: Vec<Option<i64>> = p.variants.iter().map(|v| v.pin).collect();
+                    let tags = cdc_runtime::patch::layout(&pins, patch_seed)?;
+                    let map = p
+                        .variants
+                        .iter()
+                        .zip(tags)
+                        .map(|(v, t)| (v.name.clone(), t))
+                        .collect();
+                    self.pano_tags.insert(p.name.clone(), map);
+                }
+                _ => {}
             }
         }
         for item in &program.items {
@@ -522,6 +551,12 @@ impl Cg {
             }
             ExprKind::Binary(op, l, rr) => self.gen_binary(*op, l, rr),
             ExprKind::Call(name, args) => self.gen_call(name, args),
+            ExprKind::Path(ty, member) => self
+                .pano_tags
+                .get(ty)
+                .and_then(|m| m.get(member))
+                .map(|t| t.to_string())
+                .ok_or_else(|| format!("variant inconnu « {ty}.{member} »")),
         }
     }
 

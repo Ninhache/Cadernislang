@@ -6,6 +6,7 @@
 
 pub mod cabi;
 pub mod config;
+pub mod patch;
 
 pub use config::Config;
 use rand::rngs::StdRng;

@@ -24,6 +24,8 @@ pub struct Config {
     pub up_pa: i64,
     /// Graine RNG. `None` ⇒ aléatoire (entropie système).
     pub seed: Option<u64>,
+    /// Seed de dérive de patch (SPEC §1.4) : permute les tags `pano` non épinglés. Défaut 0.
+    pub patch_seed: u64,
 }
 
 impl Default for Config {
@@ -39,6 +41,7 @@ impl Default for Config {
             assign_pa: 1,
             up_pa: 1,
             seed: None,
+            patch_seed: 0,
         }
     }
 }
@@ -57,6 +60,7 @@ impl Config {
             "fenetre" => self.fenetre = value as usize,
             "bucket_ms" => self.bucket_ms = value as u64,
             "seed" => self.seed = Some(value as u64),
+            "patch_seed" => self.patch_seed = value as u64,
             _ => return false,
         }
         true
