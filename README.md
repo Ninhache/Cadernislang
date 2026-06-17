@@ -1,5 +1,9 @@
 # cadernislang
 
+<p align="center">
+  <img src="docs/assets/cadernis.webp" alt="cadernis" width="240">
+</p>
+
 Un langage jouet (`.cdl`) compilé/interprété dont **la blague est dans la sémantique
 d'exécution**, pas dans le vocabulaire. Le modèle de calcul est calqué sur la culture
 Dofus / botting / reverse : on programme un farmeur qui doit tenir un **budget d'actions
