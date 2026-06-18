@@ -17,6 +17,13 @@
         "configuration": "./language-configuration.json"
       }
     ],
+    "grammars": [
+      {
+        "language": "cadernislang",
+        "scopeName": "source.cdl",
+        "path": "./syntaxes/cadernislang.tmLanguage.json"
+      }
+    ],
     "configuration": {
       "title": "cadernislang",
       "properties": {

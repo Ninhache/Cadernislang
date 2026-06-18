@@ -2,7 +2,8 @@
 //! coût + libellés de complétion. Testable sans serveur (le backend LSP n'est qu'un adaptateur).
 
 use cdc_ast::Item;
-use cdc_sema::CostReport;
+use cdc_sema::TourCost;
+use std::collections::HashMap;
 
 /// Diagnostic positionné (ligne/colonne 1-based).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -13,13 +14,12 @@ pub struct Diag {
     pub code: Option<String>,
 }
 
-/// Résultat d'analyse d'un document.
+/// Résultat d'analyse d'un document (diagnostics). Les coûts/positions passent par [`symbols`].
 pub struct Analysis {
     pub diags: Vec<Diag>,
-    pub report: Option<CostReport>,
 }
 
-/// Analyse un source : en-tête → parse → sema, et calcule le rapport de coût si valide.
+/// Analyse un source : en-tête → parse → sema, produit les diagnostics.
 pub fn analyze(src: &str) -> Analysis {
     if cdc_lexer::verify_header(src).is_err() {
         return Analysis {
@@ -29,7 +29,6 @@ pub fn analyze(src: &str) -> Analysis {
                 msg: "candidature contributeur refusée".to_string(),
                 code: None,
             }],
-            report: None,
         };
     }
     match cdc_parser::parse(src) {
@@ -40,7 +39,6 @@ pub fn analyze(src: &str) -> Analysis {
                 msg: e.msg,
                 code: None,
             }],
-            report: None,
         },
         Ok(prog) => {
             let diags = cdc_sema::check(&prog)
@@ -52,10 +50,58 @@ pub fn analyze(src: &str) -> Analysis {
                     code: d.code.map(|c| c.to_string()),
                 })
                 .collect();
-            let report = Some(cdc_sema::report(&prog));
-            Analysis { diags, report }
+            Analysis { diags }
         }
     }
+}
+
+/// Symboles d'un programme : position de définition + coût (pour hover / go-to-definition).
+#[derive(Default)]
+pub struct Symbols {
+    /// nom de `bot` → (ligne, colonne de définition, coût PA effectif).
+    pub bots: HashMap<String, (u32, u32, i64)>,
+    /// nom de `pano`/`perso` → (ligne, colonne de définition).
+    pub types: HashMap<String, (u32, u32)>,
+    /// Usage par `tour` (pour le hover sur le mot-clé `tour`).
+    pub tours: Vec<TourCost>,
+    pub max_pa: i64,
+    pub max_pm: i64,
+}
+
+/// Extrait les symboles (définitions + coûts) d'un source valide ; vide sinon.
+pub fn symbols(src: &str) -> Symbols {
+    let prog = match cdc_parser::parse(src) {
+        Ok(p) => p,
+        Err(_) => return Symbols::default(),
+    };
+    let report = cdc_sema::report(&prog);
+    let costs: HashMap<&str, i64> = report
+        .bots
+        .iter()
+        .map(|b| (b.name.as_str(), b.cost))
+        .collect();
+    let mut sy = Symbols {
+        max_pa: report.max_pa,
+        max_pm: report.max_pm,
+        tours: report.tours.clone(),
+        ..Default::default()
+    };
+    for item in &prog.items {
+        match item {
+            Item::Bot(b) => {
+                let c = costs.get(b.name.as_str()).copied().unwrap_or(0);
+                sy.bots.insert(b.name.clone(), (b.line, b.col, c));
+            }
+            Item::Pano(p) => {
+                sy.types.insert(p.name.clone(), (p.line, p.col));
+            }
+            Item::Perso(p) => {
+                sy.types.insert(p.name.clone(), (p.line, p.col));
+            }
+            _ => {}
+        }
+    }
+    sy
 }
 
 const MOTS_CLES: &[&str] = &[
@@ -124,20 +170,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn analyse_golden_sans_diag_avec_rapport() {
+    fn analyse_golden_sans_diag() {
         let src = include_str!("../../../examples/dopeuls.cdl");
-        let a = analyze(src);
-        assert!(a.diags.is_empty(), "diags={:?}", a.diags);
-        let r = a.report.unwrap();
-        assert_eq!(r.tours.len(), 1);
-        assert_eq!(r.tours[0].pa, 5);
+        assert!(analyze(src).diags.is_empty());
+    }
+
+    #[test]
+    fn symboles_golden() {
+        let src = include_str!("../../../examples/dopeuls.cdl");
+        let sy = symbols(src);
+        // bot connu avec son coût ; un tour à 5 PA
+        assert_eq!(sy.bots.get("tuer_dopeul").map(|(_, _, c)| *c), Some(4));
+        assert_eq!(sy.tours.len(), 1);
+        assert_eq!(sy.tours[0].pa, 5);
     }
 
     #[test]
     fn analyse_sans_entete() {
         let a = analyze("connexion {}");
         assert!(a.diags.iter().any(|d| d.msg.contains("candidature")));
-        assert!(a.report.is_none());
     }
 
     #[test]
