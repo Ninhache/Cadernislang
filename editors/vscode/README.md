@@ -2,10 +2,13 @@
 
 Client mince qui lance le serveur LSP **`cdc-lsp`** et l'attache aux fichiers `.cdl`.
 
-Fonctionnalités (fournies par `cdc-lsp`) :
+Fonctionnalités :
+- **Coloration syntaxique** (grammaire TextMate `syntaxes/cadernislang.tmLanguage.json` — pas le LSP).
 - **Diagnostics** live (parse + sema : `error[E-PA]`, cooldown, en-tête, etc.).
 - **Complétions** : mots-clés, builtins, noms de `bot`/`pano`/`perso`.
-- **Inlay hints** : coût **PA/PM par `tour`** affiché en ligne (ex. `5/6 PA · 1/3 PM`).
+- **Hover** : sur un `bot` → coût **PA** + ✅/❌ (tient-il dans un tour ?) ; sur `tour` → **PA/PM**
+  utilisés + ✅/❌.
+- **Aller à la définition** (`bot`/`pano`/`perso`).
 
 ## Prérequis
 - Compiler le serveur : `cargo build --release -p cdc-lsp` (à la racine du repo).

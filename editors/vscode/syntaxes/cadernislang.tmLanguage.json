@@ -1,0 +1,51 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "cadernislang",
+  "scopeName": "source.cdl",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#pragmas" },
+    { "include": "#keywords" },
+    { "include": "#constants" },
+    { "include": "#types" },
+    { "include": "#builtins" }
+  ],
+  "repository": {
+    "comments": {
+      "match": "//.*$",
+      "name": "comment.line.double-slash.cdl"
+    },
+    "strings": {
+      "name": "string.quoted.double.cdl",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [{ "match": "\\\\.", "name": "constant.character.escape.cdl" }]
+    },
+    "numbers": {
+      "match": "\\b[0-9][0-9_]*\\b",
+      "name": "constant.numeric.cdl"
+    },
+    "pragmas": {
+      "match": "^\\s*#\\s*[a-zA-Z_][a-zA-Z0-9_]*",
+      "name": "keyword.control.directive.cdl"
+    },
+    "keywords": {
+      "match": "\\b(bot|coute|cd|connexion|serveur|tour|passer|farm|grind|detect|sinon|gg|pano|perso|de|a|et|ou|pas)\\b",
+      "name": "keyword.control.cdl"
+    },
+    "constants": {
+      "match": "\\b(legit|cheat|pa|pm|suspicion)\\b",
+      "name": "constant.language.cdl"
+    },
+    "types": {
+      "match": "\\b(kamas|flag|txt|afk_total)\\b",
+      "name": "support.type.cdl"
+    },
+    "builtins": {
+      "match": "\\b(loot|ban|up|afk|rand|butin|cd_pret)\\b",
+      "name": "support.function.cdl"
+    }
+  }
+}

@@ -1,8 +1,9 @@
 //! `cdc-lsp` — serveur Language Server pour cadernislang (LSP via stdin/stdout).
 //!
-//! Fournit : diagnostics live (parse + sema), complétions (mots-clés/builtins/noms déclarés), et
-//! **inlay hints du coût PA/PM par `tour`** (le « PA inline » demandé). Toute l'analyse vit dans
-//! [`analysis`] (testable) ; ce fichier n'est qu'un adaptateur tower-lsp.
+//! Fournit : diagnostics live (parse + sema), complétions, **hover** (coût PA d'un `bot` + ✅/❌,
+//! usage PA/PM d'un `tour`) et **go-to-definition** (bot/pano/perso). Toute l'analyse vit dans
+//! [`analysis`] (testable) ; ce fichier n'est qu'un adaptateur tower-lsp. (La coloration
+//! syntaxique n'est PAS gérée par le LSP : c'est une grammaire TextMate de l'extension.)
 
 mod analysis;
 
@@ -51,7 +52,8 @@ impl LanguageServer for Backend {
                     TextDocumentSyncKind::FULL,
                 )),
                 completion_provider: Some(CompletionOptions::default()),
-                inlay_hint_provider: Some(OneOf::Left(true)),
+                hover_provider: Some(HoverProviderCapability::Simple(true)),
+                definition_provider: Some(OneOf::Left(true)),
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
@@ -99,31 +101,108 @@ impl LanguageServer for Backend {
         Ok(Some(CompletionResponse::Array(items)))
     }
 
-    async fn inlay_hint(&self, p: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
-        let uri = p.text_document.uri;
+    async fn hover(&self, p: HoverParams) -> Result<Option<Hover>> {
+        let pos = p.text_document_position_params.position;
+        let uri = p.text_document_position_params.text_document.uri;
         let text = self.text_of(&uri).await;
-        let a = analysis::analyze(&text);
-        let mut hints = Vec::new();
-        if let Some(r) = a.report {
-            for t in r.tours {
-                let label = if t.dynamic {
-                    "tour: coût dynamique".to_string()
+        let word = match word_at(&text, pos) {
+            Some(w) => w,
+            None => return Ok(None),
+        };
+        let sy = analysis::symbols(&text);
+        // hover sur un nom de bot → coût PA + ✅/❌ (tient-il dans un tour ?)
+        if let Some((_, _, cost)) = sy.bots.get(&word) {
+            let mark = if *cost <= sy.max_pa {
+                "✅".to_string()
+            } else {
+                format!("❌ (dépasse le budget d'un tour : max {} PA)", sy.max_pa)
+            };
+            let md = format!("**bot `{word}`** — coût **{cost} PA** {mark}");
+            return Ok(Some(hover_md(md)));
+        }
+        // hover sur le mot-clé `tour` → usage PA/PM du tour + ✅/❌
+        if word == "tour" {
+            let cur = pos.line + 1; // 1-based
+            if let Some(t) = sy
+                .tours
+                .iter()
+                .filter(|t| t.line >= cur)
+                .min_by_key(|t| t.line)
+            {
+                let md = if t.dynamic {
+                    "**tour** — coût **dynamique** (boucle/tour imbriqué → vérifié au runtime)"
+                        .to_string()
                 } else {
-                    format!("{}/{} PA · {}/{} PM", t.pa, r.max_pa, t.pm, r.max_pm)
+                    let ok = t.pa <= sy.max_pa && t.pm <= sy.max_pm;
+                    let mark = if ok { "✅" } else { "❌ dépasse le budget" };
+                    format!(
+                        "**tour** — **{}/{} PA** · **{}/{} PM** {mark}",
+                        t.pa, sy.max_pa, t.pm, sy.max_pm
+                    )
                 };
-                hints.push(InlayHint {
-                    position: Position::new(t.line.saturating_sub(1), t.col.saturating_sub(1)),
-                    label: InlayHintLabel::String(label),
-                    kind: Some(InlayHintKind::TYPE),
-                    text_edits: None,
-                    tooltip: None,
-                    padding_left: Some(true),
-                    padding_right: None,
-                    data: None,
-                });
+                return Ok(Some(hover_md(md)));
             }
         }
-        Ok(Some(hints))
+        Ok(None)
+    }
+
+    async fn goto_definition(
+        &self,
+        p: GotoDefinitionParams,
+    ) -> Result<Option<GotoDefinitionResponse>> {
+        let pos = p.text_document_position_params.position;
+        let uri = p.text_document_position_params.text_document.uri;
+        let text = self.text_of(&uri).await;
+        let word = match word_at(&text, pos) {
+            Some(w) => w,
+            None => return Ok(None),
+        };
+        let sy = analysis::symbols(&text);
+        let def = sy
+            .bots
+            .get(&word)
+            .map(|(l, c, _)| (*l, *c))
+            .or_else(|| sy.types.get(&word).copied());
+        if let Some((line, col)) = def {
+            let p0 = Position::new(line.saturating_sub(1), col.saturating_sub(1));
+            let range = Range::new(p0, p0);
+            return Ok(Some(GotoDefinitionResponse::Scalar(Location::new(
+                uri, range,
+            ))));
+        }
+        Ok(None)
+    }
+}
+
+/// Construit un Hover markdown.
+fn hover_md(value: String) -> Hover {
+    Hover {
+        contents: HoverContents::Markup(MarkupContent {
+            kind: MarkupKind::Markdown,
+            value,
+        }),
+        range: None,
+    }
+}
+
+/// Mot identifiant sous le curseur (ou `None`).
+fn word_at(text: &str, pos: Position) -> Option<String> {
+    let line = text.lines().nth(pos.line as usize)?;
+    let chars: Vec<char> = line.chars().collect();
+    let c = (pos.character as usize).min(chars.len());
+    let is_id = |ch: char| ch.is_alphanumeric() || ch == '_';
+    let mut s = c;
+    while s > 0 && is_id(chars[s - 1]) {
+        s -= 1;
+    }
+    let mut e = c;
+    while e < chars.len() && is_id(chars[e]) {
+        e += 1;
+    }
+    if s == e {
+        None
+    } else {
+        Some(chars[s..e].iter().collect())
     }
 }
 
