@@ -1,0 +1,19 @@
+[package]
+name = "cdc-lsp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "cdc-lsp"
+path = "src/main.rs"
+
+# Serveur LSP : deps async (tower-lsp + tokio) confinées à ce crate tooling (ADR-004).
+[dependencies]
+cdc-ast = { path = "../cdc-ast" }
+cdc-lexer = { path = "../cdc-lexer" }
+cdc-parser = { path = "../cdc-parser" }
+cdc-sema = { path = "../cdc-sema" }
+tower-lsp = "0.20"
+tokio = { version = "1", features = ["rt-multi-thread", "io-std", "macros"] }

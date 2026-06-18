@@ -1,0 +1,43 @@
+{
+  "name": "cadernislang",
+  "displayName": "cadernislang",
+  "description": "Support cadernislang (.cdl) : diagnostics, complétions et coût PA/PM en inline via cdc-lsp.",
+  "version": "0.0.1",
+  "publisher": "ninhache",
+  "engines": { "vscode": "^1.75.0" },
+  "categories": ["Programming Languages"],
+  "activationEvents": ["onLanguage:cadernislang"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "cadernislang",
+        "aliases": ["cadernislang", "cdl"],
+        "extensions": [".cdl"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "configuration": {
+      "title": "cadernislang",
+      "properties": {
+        "cadernislang.serverPath": {
+          "type": "string",
+          "default": "cdc-lsp",
+          "description": "Chemin du binaire du serveur LSP (cdc-lsp)."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "vscode:prepublish": "npm run compile"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/vscode": "^1.75.0",
+    "typescript": "^5.4.0"
+  }
+}
