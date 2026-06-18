@@ -150,6 +150,17 @@ impl Cg {
                         .collect();
                     self.pano_tags.insert(p.name.clone(), map);
                 }
+                Item::Perso(p) => {
+                    let pins: Vec<Option<i64>> = p.fields.iter().map(|f| f.pin).collect();
+                    let tags = cdc_runtime::patch::layout(&pins, patch_seed)?;
+                    let map = p
+                        .fields
+                        .iter()
+                        .zip(tags)
+                        .map(|(f, t)| (f.name.clone(), t))
+                        .collect();
+                    self.pano_tags.insert(p.name.clone(), map);
+                }
                 _ => {}
             }
         }
@@ -551,12 +562,21 @@ impl Cg {
             }
             ExprKind::Binary(op, l, rr) => self.gen_binary(*op, l, rr),
             ExprKind::Call(name, args) => self.gen_call(name, args),
-            ExprKind::Path(ty, member) => self
+            ExprKind::Path(left, member) => self
                 .pano_tags
-                .get(ty)
+                .get(left)
                 .and_then(|m| m.get(member))
                 .map(|t| t.to_string())
-                .ok_or_else(|| format!("variant inconnu « {ty}.{member} »")),
+                .ok_or_else(|| {
+                    format!(
+                        "« {left}.{member} » : tag pano/perso inconnu, ou accès de champ d'instance \
+                         perso non supporté par le backend natif (utiliser `cdc run`)"
+                    )
+                }),
+            ExprKind::Struct(_, _) => Err(
+                "construction de perso non supportée par le backend natif (utiliser `cdc run`)"
+                    .to_string(),
+            ),
         }
     }
 

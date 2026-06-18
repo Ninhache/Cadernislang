@@ -214,10 +214,13 @@ variant et survit.
 >   `#patch_seed N` ou de l'env `CDC_PATCH_SEED` (défaut 0). Deux builds/run avec des seeds
 >   différents = deux « patchs ». La dérive est observable en `run` **et** en `build` (le tag est
 >   une constante bakée dans le binaire au moment du `build`).
-> - **`perso` (structs) reporté.** Seul `pano` est implémenté comme véhicule de la dérive. La
->   construction de structs `Nom { … }` crée une ambiguïté grammaticale (struct-literal vs bloc de
->   `detect`/`farm`) disproportionnée pour un bonus ; le cœur de §1.4 (le code paresseux casse au
->   rebuild) est entièrement démontré par `pano`. `perso` pourra être ajouté ultérieurement.
+> - **`perso` (structs) implémenté.** `perso Nom { vie: kamas, @0 id: kamas }` : construction
+>   `Nom { vie: 100, id: 1 }`, accès de champ par nom `p.vie` (stable), et tag de champ dérivant
+>   `Nom.vie` (mêmes règles que les variants `pano`). L'ambiguïté struct-literal vs bloc de
+>   `detect`/`farm` est levée par un contexte « no struct literal » dans les conditions. **Backend
+>   natif** : les *tags* `Nom.champ` sont supportés, mais la construction et l'accès d'instance
+>   `p.champ` sont **interp-only** (l'agrégat n'est pas abaissé en IR) — `cdc build` les rejette
+>   clairement.
 > - La logique de permutation (`cdc_runtime::patch::layout`) est **partagée** interp ↔ codegen
 >   (invariant §9.7). Un tag épinglé hors `0..n` ou dupliqué est une erreur sema.
 
@@ -282,8 +285,8 @@ farm observable **illimité** ; le skill consiste à disperser assez les délais
 | `kamas` | entier signé 64 bits | type numérique par défaut |
 | `flag` | booléen | littéraux `legit` (true) / `cheat` (false) |
 | `txt` | chaîne UTF-8 | pour `up` |
-| `perso` | struct (champs nommés) | Phase 6 |
-| `pano` | énumération | Phase 6 |
+| `perso` | struct (champs nommés) | tags de champs dérivants (§1.4) |
+| `pano` | énumération | variants = tags dérivants (§1.4) |
 | `afk_total` | unit / valeur nulle | |
 
 Littéraux numériques : underscores autorisés et ignorés (`1_000_000`).
@@ -344,12 +347,14 @@ lexer. Cas particulier easter egg : la **ligne 1** du fichier doit être exactem
 programme   = entete , { pragma } , { item } ;
 entete      = "// gg wp" , NEWLINE ;
 pragma      = "#" , IDENT , INT , NEWLINE ;
-item        = serveur_decl | bot_decl | connexion_decl | pano_decl ;
+item        = serveur_decl | bot_decl | connexion_decl | pano_decl | perso_decl ;
 
 serveur_decl   = "serveur" , IDENT ;
 connexion_decl = "connexion" , bloc ;
 pano_decl      = "pano" , IDENT , "{" , [ variant , { "," , variant } ] , "}" ;
 variant        = [ "@" , INT ] , IDENT ;   (* @N épingle le tag, §1.4 *)
+perso_decl     = "perso" , IDENT , "{" , [ champ , { "," , champ } ] , "}" ;
+champ          = [ "@" , INT ] , IDENT , ":" , type ;
 
 bot_decl    = "bot" , IDENT , "(" , [ params ] , ")" ,
               [ ":" , type ] ,
@@ -381,8 +386,9 @@ expr_stmt   = expr ;
 
 expr        = (* arith +,-,*,/ ; comparaisons <,<=,>,>=,==,!= ;
                 et/ou/pas ; appels builtin f(args) ; appels de bot ;
-                Pano.Variant (tag, §1.4) ; littéraux kamas/flag/txt ;
-                pa/pm/suspicion ; IDENT *) ;
+                Pano.Variant / Perso.champ (tag, §1.4) ; variable.champ (accès) ;
+                Nom { champ : expr , … } (construction perso) ;
+                littéraux kamas/flag/txt ; pa/pm/suspicion ; IDENT *) ;
 ```
 
 **Précédence des opérateurs** (du plus fort au plus faible), tous **associatifs à gauche** sauf le

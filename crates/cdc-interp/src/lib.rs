@@ -18,6 +18,8 @@ pub enum Value {
     Int(i64),
     Bool(bool),
     Str(String),
+    /// Instance de `perso` : champ → valeur (SPEC §1.4).
+    Struct(HashMap<String, Value>),
     /// `afk_total` — valeur unit.
     Unit,
 }
@@ -111,6 +113,19 @@ pub fn run(program: &Program) -> Result<(), RunError> {
                     .iter()
                     .zip(tags)
                     .map(|(v, t)| (v.name.clone(), t))
+                    .collect();
+                pano_tags.insert(p.name.clone(), map);
+            }
+            Item::Perso(p) => {
+                // tags de champs dérivants (mêmes règles que pano, SPEC §1.4).
+                let pins: Vec<Option<i64>> = p.fields.iter().map(|f| f.pin).collect();
+                let tags = cdc_runtime::patch::layout(&pins, cfg.patch_seed)
+                    .map_err(|e| RunError::Msg(format!("perso « {} » : {e}", p.name)))?;
+                let map = p
+                    .fields
+                    .iter()
+                    .zip(tags)
+                    .map(|(f, t)| (f.name.clone(), t))
                     .collect();
                 pano_tags.insert(p.name.clone(), map);
             }
@@ -334,13 +349,29 @@ impl Interp {
             }
             ExprKind::Binary(op, lhs, rhs) => self.eval_binary(*op, lhs, rhs),
             ExprKind::Call(name, args) => self.eval_call(name, args),
-            ExprKind::Path(ty, member) => {
-                let tag = self
-                    .pano_tags
-                    .get(ty)
-                    .and_then(|m| m.get(member))
-                    .ok_or_else(|| RunError::Msg(format!("variant inconnu « {ty}.{member} »")))?;
-                Ok(Value::Int(*tag))
+            ExprKind::Path(left, member) => {
+                if self.lookup(left).is_some() {
+                    // variable.champ → accès de champ d'une instance perso
+                    match self.read_var(left)? {
+                        Value::Struct(m) => m.get(member).cloned().ok_or_else(|| {
+                            RunError::Msg(format!("champ inconnu « {left}.{member} »"))
+                        }),
+                        _ => Err(RunError::Msg(format!("« {left} » n'est pas un perso"))),
+                    }
+                } else if let Some(tag) = self.pano_tags.get(left).and_then(|m| m.get(member)) {
+                    // Pano.Variant ou Perso.champ → tag (dérivant)
+                    Ok(Value::Int(*tag))
+                } else {
+                    Err(RunError::Msg(format!("« {left}.{member} » inconnu")))
+                }
+            }
+            ExprKind::Struct(_ty, fields) => {
+                let mut map = HashMap::new();
+                for (name, expr) in fields {
+                    let v = self.eval(expr)?;
+                    map.insert(name.clone(), v);
+                }
+                Ok(Value::Struct(map))
             }
         }
     }
@@ -473,6 +504,7 @@ fn to_display(v: &Value) -> String {
         Value::Int(n) => n.to_string(),
         Value::Bool(true) => "legit".to_string(),
         Value::Bool(false) => "cheat".to_string(),
+        Value::Struct(_) => "<perso>".to_string(),
         Value::Unit => "afk_total".to_string(),
     }
 }

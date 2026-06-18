@@ -126,7 +126,7 @@ codegen l'appellent, jamais de duplication divergente.
 | 3 | suspicion (fenêtre K) + cooldowns | ✅ |
 | 4 | analyse statique du budget (`E-PA`/`E-PM`) | ✅ |
 | 5 | backend natif (`cdc build` via IR textuel + `clang`) | ✅ |
-| 6 | bonus : dérive de patch (`pano` + épinglage `@N`) | ✅ (`perso` reporté) |
+| 6 | bonus : dérive de patch (`pano` + `perso` + épinglage `@N`) | ✅ |
 
 ## Licence
 

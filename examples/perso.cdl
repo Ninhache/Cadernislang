@@ -1,0 +1,29 @@
+// gg wp
+// perso (struct) : champs nommés. L'accès PAR NOM (h.vie) est stable. Le TAG d'un champ
+// (Heros.vie) dérive selon le patch_seed (SPEC §1.4), sauf s'il est épinglé (@N).
+perso Heros { vie: kamas, @0 niveau: kamas, force: kamas }
+
+connexion {
+    loot h = Heros { vie: 100, niveau: 5, force: 20 }
+
+    // accès par nom : toujours stable
+    detect h.vie == 100 {
+        up "vie ok"
+    } sinon {
+        up "vie ko"
+    }
+
+    // tag de champ épinglé @0 : stable quel que soit le seed
+    detect Heros.niveau == 0 {
+        up "niveau tag 0 epingle"
+    } sinon {
+        up "niveau a derive (impossible)"
+    }
+
+    // tag de champ non épinglé : dérive d'un patch à l'autre
+    detect Heros.vie == 1 {
+        up "vie tag 1"
+    } sinon {
+        up "vie tag autre"
+    }
+}

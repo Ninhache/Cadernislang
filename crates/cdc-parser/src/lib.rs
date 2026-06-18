@@ -36,13 +36,20 @@ pub fn parse(src: &str) -> PResult<Program> {
         line: e.line,
         col: e.col,
     })?;
-    let mut p = Parser { toks, pos: 0 };
+    let mut p = Parser {
+        toks,
+        pos: 0,
+        no_struct: false,
+    };
     p.program()
 }
 
 struct Parser {
     toks: Vec<Spanned>,
     pos: usize,
+    /// Désactive les littéraux de struct `Nom { … }` (contexte condition de `detect`/`farm`/`grind`,
+    /// pour lever l'ambiguïté avec le bloc qui suit). SPEC §1.4 / Déviation 10.
+    no_struct: bool,
 }
 
 impl Parser {
@@ -174,7 +181,8 @@ impl Parser {
                 Ok(Item::Connexion(self.block()?))
             }
             Some(Token::Ident(s)) if s == "pano" => Ok(Item::Pano(self.pano()?)),
-            _ => self.err("attendu « serveur », « bot », « pano » ou « connexion »"),
+            Some(Token::Ident(s)) if s == "perso" => Ok(Item::Perso(self.perso()?)),
+            _ => self.err("attendu « serveur », « bot », « pano », « perso » ou « connexion »"),
         }
     }
 
@@ -265,6 +273,52 @@ impl Parser {
         })
     }
 
+    /// `perso Nom { [@N] champ : type , … }` (le mot `perso` est contextuel).
+    fn perso(&mut self) -> PResult<Perso> {
+        let (line, col) = self.here();
+        self.bump(); // perso
+        let name = self.ident()?;
+        self.expect(&Token::LBrace, "« { »")?;
+        let mut fields = Vec::new();
+        while !self.at(&Token::RBrace) {
+            if self.peek().is_none() {
+                return self.err("« } » manquant");
+            }
+            let pin = if self.eat(&Token::At) {
+                Some(self.int()?)
+            } else {
+                None
+            };
+            let fname = self.ident()?;
+            self.expect(&Token::Colon, "« : »")?;
+            let ty = self.parse_type()?;
+            fields.push(Field {
+                name: fname,
+                ty,
+                pin,
+            });
+            if !self.eat(&Token::Comma) {
+                break;
+            }
+        }
+        self.expect(&Token::RBrace, "« } »")?;
+        Ok(Perso {
+            name,
+            fields,
+            line,
+            col,
+        })
+    }
+
+    /// Parse une expression de condition (sans littéral de struct, pour lever l'ambiguïté).
+    fn cond_expr(&mut self) -> PResult<Expr> {
+        let saved = self.no_struct;
+        self.no_struct = true;
+        let r = self.expr();
+        self.no_struct = saved;
+        r
+    }
+
     fn parse_type(&mut self) -> PResult<Type> {
         let name = self.ident()?;
         Ok(match name.as_str() {
@@ -305,7 +359,7 @@ impl Parser {
             }
             Some(Token::Farm) => {
                 self.bump();
-                let cond = self.expr()?;
+                let cond = self.cond_expr()?;
                 let body = self.block()?;
                 Ok(Stmt::Farm { cond, body })
             }
@@ -313,9 +367,9 @@ impl Parser {
                 self.bump();
                 let var = self.ident()?;
                 self.keyword_ident("de")?;
-                let from = self.expr()?;
+                let from = self.cond_expr()?;
                 self.keyword_ident("a")?;
-                let to = self.expr()?;
+                let to = self.cond_expr()?;
                 let body = self.block()?;
                 Ok(Stmt::Grind {
                     var,
@@ -326,7 +380,7 @@ impl Parser {
             }
             Some(Token::Detect) => {
                 self.bump();
-                let cond = self.expr()?;
+                let cond = self.cond_expr()?;
                 let then_branch = self.block()?;
                 let else_branch = if self.eat(&Token::Sinon) {
                     Some(self.block()?)
@@ -572,6 +626,9 @@ impl Parser {
                 } else if self.eat(&Token::Dot) {
                     let member = self.ident()?;
                     ExprKind::Path(name, member)
+                } else if self.at(&Token::LBrace) && !self.no_struct {
+                    let fields = self.struct_fields()?;
+                    ExprKind::Struct(name, fields)
                 } else {
                     ExprKind::Var(name)
                 }
@@ -579,6 +636,28 @@ impl Parser {
             _ => return self.err("expression attendue"),
         };
         Ok(Expr { kind, line, col })
+    }
+
+    /// Champs d'un littéral de struct : `{ champ : expr , … }`.
+    fn struct_fields(&mut self) -> PResult<Vec<(String, Expr)>> {
+        let saved = self.no_struct;
+        self.no_struct = false; // dans le corps du littéral, les structs sont à nouveau permis
+        self.expect(&Token::LBrace, "« { »")?;
+        let mut fields = Vec::new();
+        if !self.at(&Token::RBrace) {
+            loop {
+                let fname = self.ident()?;
+                self.expect(&Token::Colon, "« : »")?;
+                let value = self.expr()?;
+                fields.push((fname, value));
+                if !self.eat(&Token::Comma) {
+                    break;
+                }
+            }
+        }
+        self.expect(&Token::RBrace, "« } »")?;
+        self.no_struct = saved;
+        Ok(fields)
     }
 
     fn call_args(&mut self) -> PResult<Vec<Expr>> {
