@@ -76,6 +76,7 @@ explicitées).
 cdc run   fichier.cdl   # interprète (cdc-interp)
 cdc check fichier.cdl   # lexer + parser + sema (budget statique), sans exécution
 cdc build fichier.cdl   # émet du LLVM IR, compile via clang + link cdc-runtime → binaire natif
+cdc cost  fichier.cdl   # coût PA effectif des bots + usage PA/PM par tour
 ```
 
 Tout `.cdl` **doit** commencer par la ligne exacte `// gg wp` ; sinon

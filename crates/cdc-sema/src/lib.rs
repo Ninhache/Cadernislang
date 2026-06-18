@@ -486,7 +486,7 @@ impl Sema {
         }
         let line_col = first_pos(body).unwrap_or((1, 1));
 
-        let pa = self.block_pa(body);
+        let pa = block_pa(body, &self.effective, &self.cfg);
         if pa > self.cfg.max_pa {
             self.err(
                 Some("E-PA"),
@@ -503,7 +503,7 @@ impl Sema {
         let mut locals = HashSet::new();
         collect_locals(body, &mut locals);
         let mut externals = HashSet::new();
-        self.block_external_reads(body, &locals, &mut externals);
+        block_external_reads(body, &locals, &mut externals);
         let pm = externals.len() as i64;
         if pm > self.cfg.max_pm {
             self.err(
@@ -517,85 +517,81 @@ impl Sema {
             );
         }
     }
+}
 
-    /// Coût PA (pire chemin) d'un bloc sans boucle.
-    fn block_pa(&self, b: &Block) -> i64 {
-        b.stmts.iter().map(|s| self.stmt_pa(s)).sum()
+/// Coût PA (pire chemin) d'un bloc sans boucle.
+fn block_pa(b: &Block, eff: &HashMap<String, i64>, cfg: &Config) -> i64 {
+    b.stmts.iter().map(|s| stmt_pa(s, eff, cfg)).sum()
+}
+
+fn stmt_pa(s: &Stmt, eff: &HashMap<String, i64>, cfg: &Config) -> i64 {
+    match s {
+        Stmt::Loot { value, .. } | Stmt::Ban { value, .. } => cfg.assign_pa + expr_pa(value, eff),
+        Stmt::Assign { value, .. } => cfg.assign_pa + expr_pa(value, eff),
+        Stmt::Up(e) => cfg.up_pa + expr_pa(e, eff),
+        Stmt::Afk(e) => expr_pa(e, eff), // afk = 0 PA, mais l'arg peut contenir un appel
+        Stmt::Expr(e) | Stmt::Gg(Some(e)) => expr_pa(e, eff),
+        Stmt::Gg(None) | Stmt::Passer => 0,
+        Stmt::Detect {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            let e = else_branch
+                .as_ref()
+                .map(|b| block_pa(b, eff, cfg))
+                .unwrap_or(0);
+            expr_pa(cond, eff) + block_pa(then_branch, eff, cfg).max(e)
+        }
+        // exclus par contains_dynamic
+        Stmt::Tour(_) | Stmt::Farm { .. } | Stmt::Grind { .. } => 0,
     }
+}
 
-    fn stmt_pa(&self, s: &Stmt) -> i64 {
+/// PA d'une expression = somme des coûts effectifs des appels de bot qu'elle contient.
+fn expr_pa(e: &Expr, eff: &HashMap<String, i64>) -> i64 {
+    match &e.kind {
+        ExprKind::Unary(_, x) => expr_pa(x, eff),
+        ExprKind::Binary(_, l, r) => expr_pa(l, eff) + expr_pa(r, eff),
+        ExprKind::Call(name, args) => {
+            let here = match name.as_str() {
+                "rand" | "butin" | "cd_pret" => 0,
+                _ => eff.get(name).copied().unwrap_or(0),
+            };
+            here + args.iter().map(|a| expr_pa(a, eff)).sum::<i64>()
+        }
+        _ => 0,
+    }
+}
+
+/// Collecte les variables externes (non locales au tour) lues **hors condition**.
+fn block_external_reads(b: &Block, locals: &HashSet<String>, out: &mut HashSet<String>) {
+    for s in &b.stmts {
         match s {
-            Stmt::Loot { value, .. } | Stmt::Ban { value, .. } => {
-                self.cfg.assign_pa + self.expr_pa(value)
+            Stmt::Loot { value, .. } | Stmt::Ban { value, .. } => expr_reads(value, locals, out),
+            Stmt::Assign {
+                name, value, op, ..
+            } => {
+                if !matches!(op, AssignOp::Set) && !locals.contains(name) {
+                    out.insert(name.clone());
+                }
+                expr_reads(value, locals, out);
             }
-            Stmt::Assign { value, .. } => self.cfg.assign_pa + self.expr_pa(value),
-            Stmt::Up(e) => self.cfg.up_pa + self.expr_pa(e),
-            Stmt::Afk(e) => self.expr_pa(e), // afk = 0 PA, mais l'arg peut contenir un appel
-            Stmt::Expr(e) | Stmt::Gg(Some(e)) => self.expr_pa(e),
-            Stmt::Gg(None) | Stmt::Passer => 0,
+            Stmt::Up(e) | Stmt::Afk(e) | Stmt::Expr(e) | Stmt::Gg(Some(e)) => {
+                expr_reads(e, locals, out)
+            }
             Stmt::Detect {
-                cond,
                 then_branch,
                 else_branch,
+                ..
             } => {
-                let e = else_branch.as_ref().map(|b| self.block_pa(b)).unwrap_or(0);
-                self.expr_pa(cond) + self.block_pa(then_branch).max(e)
+                block_external_reads(then_branch, locals, out);
+                if let Some(eb) = else_branch {
+                    block_external_reads(eb, locals, out);
+                }
             }
-            // exclus par contains_dynamic
-            Stmt::Tour(_) | Stmt::Farm { .. } | Stmt::Grind { .. } => 0,
-        }
-    }
-
-    /// PA d'une expression = somme des `coute` des appels de bot qu'elle contient.
-    fn expr_pa(&self, e: &Expr) -> i64 {
-        match &e.kind {
-            ExprKind::Unary(_, x) => self.expr_pa(x),
-            ExprKind::Binary(_, l, r) => self.expr_pa(l) + self.expr_pa(r),
-            ExprKind::Call(name, args) => {
-                let here = match name.as_str() {
-                    "rand" | "butin" | "cd_pret" => 0,
-                    _ => self.effective.get(name).copied().unwrap_or(0),
-                };
-                here + args.iter().map(|a| self.expr_pa(a)).sum::<i64>()
-            }
-            _ => 0,
-        }
-    }
-
-    /// Collecte les variables externes (non locales au tour) lues **hors condition**.
-    fn block_external_reads(&self, b: &Block, locals: &HashSet<String>, out: &mut HashSet<String>) {
-        for s in &b.stmts {
-            match s {
-                Stmt::Loot { value, .. } | Stmt::Ban { value, .. } => {
-                    expr_reads(value, locals, out)
-                }
-                Stmt::Assign {
-                    name, value, op, ..
-                } => {
-                    // += / -= lisent la cible ; = ne la lit pas
-                    if !matches!(op, AssignOp::Set) && !locals.contains(name) {
-                        out.insert(name.clone());
-                    }
-                    expr_reads(value, locals, out);
-                }
-                Stmt::Up(e) | Stmt::Afk(e) | Stmt::Expr(e) | Stmt::Gg(Some(e)) => {
-                    expr_reads(e, locals, out)
-                }
-                Stmt::Detect {
-                    then_branch,
-                    else_branch,
-                    ..
-                } => {
-                    // condition = perception (0 PM) ; on ne scanne que les branches
-                    self.block_external_reads(then_branch, locals, out);
-                    if let Some(eb) = else_branch {
-                        self.block_external_reads(eb, locals, out);
-                    }
-                }
-                Stmt::Gg(None) | Stmt::Passer => {}
-                // exclus par contains_dynamic
-                Stmt::Tour(_) | Stmt::Farm { .. } | Stmt::Grind { .. } => {}
-            }
+            Stmt::Gg(None) | Stmt::Passer => {}
+            Stmt::Tour(_) | Stmt::Farm { .. } | Stmt::Grind { .. } => {}
         }
     }
 }
@@ -812,6 +808,123 @@ fn expr_cost(
     }
 }
 
+// ============================================================================================
+// Rapport de coût (Phase 8) : coût effectif des bots + usage PA/PM par `tour`. Réutilisé par la
+// commande `cdc cost` et (à venir) le serveur LSP.
+// ============================================================================================
+
+/// Coût effectif d'un `bot`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BotCost {
+    pub name: String,
+    pub cost: i64,
+    /// `true` si `coute` est déclaré ; `false` si auto-dérivé.
+    pub declared: bool,
+}
+
+/// Usage budgétaire d'un `tour`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TourCost {
+    pub line: u32,
+    pub col: u32,
+    pub pa: i64,
+    pub pm: i64,
+    /// `true` si coût dynamique (boucle/tour imbriqué) : `pa`/`pm` sont alors indicatifs.
+    pub dynamic: bool,
+}
+
+/// Rapport de coût d'un programme.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CostReport {
+    pub bots: Vec<BotCost>,
+    pub tours: Vec<TourCost>,
+    pub max_pa: i64,
+    pub max_pm: i64,
+}
+
+/// Calcule le rapport de coût : coût effectif de chaque `bot` et usage PA/PM de chaque `tour`.
+pub fn cost_report(program: &Program, cfg: &Config) -> CostReport {
+    let eff = effective_costs(program, cfg);
+    let mut bots: Vec<BotCost> = program
+        .items
+        .iter()
+        .filter_map(|it| match it {
+            Item::Bot(b) => Some(BotCost {
+                name: b.name.clone(),
+                cost: eff.get(&b.name).copied().unwrap_or(0),
+                declared: b.cost_pa.is_some(),
+            }),
+            _ => None,
+        })
+        .collect();
+    bots.sort_by(|a, b| a.name.cmp(&b.name));
+
+    let mut tours = Vec::new();
+    for item in &program.items {
+        match item {
+            Item::Connexion(b) => collect_tours(b, &eff, cfg, &mut tours),
+            Item::Bot(b) => collect_tours(&b.body, &eff, cfg, &mut tours),
+            _ => {}
+        }
+    }
+    CostReport {
+        bots,
+        tours,
+        max_pa: cfg.max_pa,
+        max_pm: cfg.max_pm,
+    }
+}
+
+/// Rapport de coût en construisant la config depuis les pragmas du programme (commodité driver).
+pub fn report(program: &Program) -> CostReport {
+    let mut cfg = Config::default();
+    for p in &program.pragmas {
+        cfg.apply(&p.key, p.value);
+    }
+    cost_report(program, &cfg)
+}
+
+fn collect_tours(b: &Block, eff: &HashMap<String, i64>, cfg: &Config, out: &mut Vec<TourCost>) {
+    for s in &b.stmts {
+        match s {
+            Stmt::Tour(body) => {
+                let (line, col) = first_pos(body).unwrap_or((1, 1));
+                let dynamic = contains_dynamic(body);
+                let (pa, pm) = if dynamic {
+                    (0, 0)
+                } else {
+                    let mut locals = HashSet::new();
+                    collect_locals(body, &mut locals);
+                    let mut ext = HashSet::new();
+                    block_external_reads(body, &locals, &mut ext);
+                    (block_pa(body, eff, cfg), ext.len() as i64)
+                };
+                out.push(TourCost {
+                    line,
+                    col,
+                    pa,
+                    pm,
+                    dynamic,
+                });
+            }
+            Stmt::Farm { body, .. } | Stmt::Grind { body, .. } => {
+                collect_tours(body, eff, cfg, out)
+            }
+            Stmt::Detect {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                collect_tours(then_branch, eff, cfg, out);
+                if let Some(eb) = else_branch {
+                    collect_tours(eb, eff, cfg, out);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -824,6 +937,19 @@ mod tests {
     fn costs(src: &str) -> std::collections::HashMap<String, i64> {
         let prog = cdc_parser::parse(src).expect("parse");
         effective_costs(&prog, &Config::default())
+    }
+
+    #[test]
+    fn rapport_de_cout() {
+        let prog = cdc_parser::parse(include_str!("../../../examples/dopeuls.cdl")).unwrap();
+        let r = report(&prog);
+        let bot = r.bots.iter().find(|b| b.name == "tuer_dopeul").unwrap();
+        assert_eq!(bot.cost, 4);
+        assert!(bot.declared);
+        assert_eq!(r.tours.len(), 1);
+        assert_eq!(r.tours[0].pa, 5);
+        assert_eq!(r.tours[0].pm, 1);
+        assert!(!r.tours[0].dynamic);
     }
 
     #[test]
