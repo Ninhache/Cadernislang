@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 cdc-ast = { path = "../cdc-ast" }
 cdc-runtime = { path = "../cdc-runtime" }
+cdc-sema = { path = "../cdc-sema" }
 
 [dev-dependencies]
 cdc-parser = { path = "../cdc-parser" }

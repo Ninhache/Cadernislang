@@ -69,6 +69,8 @@ pub struct Interp {
     perception: bool,
     /// Tags `pano` après dérive de patch : (pano, variant) → tag. SPEC §1.4.
     pano_tags: HashMap<String, HashMap<String, i64>>,
+    /// Coût PA effectif par `bot` (déclaré ou auto-dérivé, Phase 7).
+    bot_costs: HashMap<String, i64>,
 }
 
 /// Exécute un programme. Le seed RNG vient du pragma `#seed`, sinon de l'env `CDC_SEED`.
@@ -134,6 +136,8 @@ pub fn run(program: &Program) -> Result<(), RunError> {
     let connexion =
         connexion.ok_or_else(|| RunError::Msg("aucune connexion (point d'entrée)".to_string()))?;
 
+    let bot_costs = cdc_sema::effective_costs(program, &cfg);
+
     let mut it = Interp {
         rt: Runtime::new(cfg),
         bots,
@@ -143,6 +147,7 @@ pub fn run(program: &Program) -> Result<(), RunError> {
         pm_ids: HashMap::new(),
         perception: false,
         pano_tags,
+        bot_costs,
     };
     it.exec_block(&connexion)?;
     Ok(())
@@ -445,9 +450,8 @@ impl Interp {
                     argvals.push(self.eval(a)?);
                 }
                 if self.in_tour {
-                    self.rt
-                        .spend_pa(bot.cost_pa.unwrap_or(0))
-                        .map_err(RunError::Fault)?;
+                    let cost = self.bot_costs.get(name).copied().unwrap_or(0);
+                    self.rt.spend_pa(cost).map_err(RunError::Fault)?;
                 }
                 // action observable → suspicion (peut bannir), puis mise en cooldown.
                 self.rt.act_bot(name).map_err(|_| RunError::Banni)?;
