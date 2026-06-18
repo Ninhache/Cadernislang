@@ -63,7 +63,6 @@ struct VarInfo {
 struct BotSig {
     params: Vec<Ty>,
     ret: Ty,
-    cost_pa: i64,
 }
 
 /// Analyse complète. Retourne tous les diagnostics (vide ⇒ programme valide).
@@ -72,12 +71,14 @@ pub fn check(program: &Program) -> Vec<SemaError> {
     for p in &program.pragmas {
         cfg.apply(&p.key, p.value);
     }
+    let effective = effective_costs(program, &cfg);
     let mut s = Sema {
         errors: Vec::new(),
         scopes: vec![HashMap::new()],
         bots: HashMap::new(),
         panos: HashMap::new(),
         persos: HashMap::new(),
+        effective,
         cfg,
     };
     s.run(program);
@@ -92,6 +93,8 @@ struct Sema {
     panos: HashMap<String, HashSet<String>>,
     /// `perso` → ensemble des noms de champs.
     persos: HashMap<String, HashSet<String>>,
+    /// Coût PA effectif par `bot` (déclaré ou auto-dérivé, Phase 7).
+    effective: HashMap<String, i64>,
     cfg: Config,
 }
 
@@ -112,7 +115,6 @@ impl Sema {
                 let sig = BotSig {
                     params: b.params.iter().map(|p| ty_of(&p.ty)).collect(),
                     ret: b.ret.as_ref().map(ty_of).unwrap_or(Ty::AfkTotal),
-                    cost_pa: b.cost_pa.unwrap_or(0),
                 };
                 self.bots.insert(b.name.clone(), sig);
             }
@@ -552,7 +554,7 @@ impl Sema {
             ExprKind::Call(name, args) => {
                 let here = match name.as_str() {
                     "rand" | "butin" | "cd_pret" => 0,
-                    _ => self.bots.get(name).map(|s| s.cost_pa).unwrap_or(0),
+                    _ => self.effective.get(name).copied().unwrap_or(0),
                 };
                 here + args.iter().map(|a| self.expr_pa(a)).sum::<i64>()
             }
@@ -680,6 +682,136 @@ fn stmt_pos(s: &Stmt) -> Option<(u32, u32)> {
     }
 }
 
+// ============================================================================================
+// Coût PA effectif d'un `bot` (Phase 7) : `coute N pa` explicite, sinon **auto-dérivé** de la
+// somme des coûts du corps (pire chemin). Source unique partagée interp ↔ codegen ↔ sema.
+// ============================================================================================
+
+/// Calcule le coût PA effectif de chaque `bot` du programme.
+///
+/// Règle : si `coute N pa` est déclaré, c'est `N` (override « coût imposé par le jeu ») ; sinon le
+/// coût est la **somme des opérations du corps** (affectations, `up`, appels de bots imbriqués…),
+/// pire chemin sur les `detect`. Les cycles d'appels contribuent 0 (garde anti-récursion).
+pub fn effective_costs(program: &Program, cfg: &Config) -> HashMap<String, i64> {
+    let bots: HashMap<String, &Bot> = program
+        .items
+        .iter()
+        .filter_map(|it| match it {
+            Item::Bot(b) => Some((b.name.clone(), b)),
+            _ => None,
+        })
+        .collect();
+    let mut memo = HashMap::new();
+    let mut visiting = HashSet::new();
+    let names: Vec<String> = bots.keys().cloned().collect();
+    for name in names {
+        cost_of_bot(&name, &bots, cfg, &mut visiting, &mut memo);
+    }
+    memo
+}
+
+fn cost_of_bot(
+    name: &str,
+    bots: &HashMap<String, &Bot>,
+    cfg: &Config,
+    visiting: &mut HashSet<String>,
+    memo: &mut HashMap<String, i64>,
+) -> i64 {
+    if let Some(c) = memo.get(name) {
+        return *c;
+    }
+    let bot = match bots.get(name) {
+        Some(b) => *b,
+        None => return 0,
+    };
+    if let Some(c) = bot.cost_pa {
+        memo.insert(name.to_string(), c);
+        return c;
+    }
+    if !visiting.insert(name.to_string()) {
+        return 0; // cycle d'appels → 0
+    }
+    let c = block_cost(&bot.body, bots, cfg, visiting, memo);
+    visiting.remove(name);
+    memo.insert(name.to_string(), c);
+    c
+}
+
+fn block_cost(
+    b: &Block,
+    bots: &HashMap<String, &Bot>,
+    cfg: &Config,
+    visiting: &mut HashSet<String>,
+    memo: &mut HashMap<String, i64>,
+) -> i64 {
+    b.stmts
+        .iter()
+        .map(|s| stmt_cost(s, bots, cfg, visiting, memo))
+        .sum()
+}
+
+fn stmt_cost(
+    s: &Stmt,
+    bots: &HashMap<String, &Bot>,
+    cfg: &Config,
+    visiting: &mut HashSet<String>,
+    memo: &mut HashMap<String, i64>,
+) -> i64 {
+    match s {
+        Stmt::Loot { value, .. } | Stmt::Ban { value, .. } | Stmt::Assign { value, .. } => {
+            cfg.assign_pa + expr_cost(value, bots, cfg, visiting, memo)
+        }
+        Stmt::Up(e) => cfg.up_pa + expr_cost(e, bots, cfg, visiting, memo),
+        Stmt::Afk(e) | Stmt::Expr(e) | Stmt::Gg(Some(e)) => expr_cost(e, bots, cfg, visiting, memo),
+        Stmt::Gg(None) | Stmt::Passer => 0,
+        Stmt::Tour(blk) => block_cost(blk, bots, cfg, visiting, memo),
+        Stmt::Farm { body, .. } => block_cost(body, bots, cfg, visiting, memo),
+        Stmt::Grind { body, .. } => block_cost(body, bots, cfg, visiting, memo),
+        Stmt::Detect {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            let e = else_branch
+                .as_ref()
+                .map(|b| block_cost(b, bots, cfg, visiting, memo))
+                .unwrap_or(0);
+            expr_cost(cond, bots, cfg, visiting, memo)
+                + block_cost(then_branch, bots, cfg, visiting, memo).max(e)
+        }
+    }
+}
+
+fn expr_cost(
+    e: &Expr,
+    bots: &HashMap<String, &Bot>,
+    cfg: &Config,
+    visiting: &mut HashSet<String>,
+    memo: &mut HashMap<String, i64>,
+) -> i64 {
+    match &e.kind {
+        ExprKind::Unary(_, x) => expr_cost(x, bots, cfg, visiting, memo),
+        ExprKind::Binary(_, l, r) => {
+            expr_cost(l, bots, cfg, visiting, memo) + expr_cost(r, bots, cfg, visiting, memo)
+        }
+        ExprKind::Call(name, args) => {
+            let here = match name.as_str() {
+                "rand" | "butin" | "cd_pret" => 0,
+                _ => cost_of_bot(name, bots, cfg, visiting, memo),
+            };
+            here + args
+                .iter()
+                .map(|a| expr_cost(a, bots, cfg, visiting, memo))
+                .sum::<i64>()
+        }
+        ExprKind::Struct(_, fields) => fields
+            .iter()
+            .map(|(_, v)| expr_cost(v, bots, cfg, visiting, memo))
+            .sum(),
+        _ => 0,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -687,6 +819,56 @@ mod tests {
     fn errs(src: &str) -> Vec<SemaError> {
         let prog = cdc_parser::parse(src).expect("parse");
         check(&prog)
+    }
+
+    fn costs(src: &str) -> std::collections::HashMap<String, i64> {
+        let prog = cdc_parser::parse(src).expect("parse");
+        effective_costs(&prog, &Config::default())
+    }
+
+    #[test]
+    fn cout_explicite_prioritaire() {
+        let c = costs("// gg wp\nbot f() : kamas, coute 4 pa { gg 1 }\nconnexion {}");
+        assert_eq!(c["f"], 4);
+    }
+
+    #[test]
+    fn cout_auto_derive_du_corps() {
+        // sans `coute` : 2 affectations → 2 PA auto-dérivés (Phase 7)
+        let c = costs("// gg wp\nbot f() : kamas { loot a = 1\nloot b = 2\ngg b }\nconnexion {}");
+        assert_eq!(c["f"], 2);
+    }
+
+    #[test]
+    fn cout_auto_appels_imbriques() {
+        let c = costs(
+            "// gg wp\nbot g() : kamas { loot a = 1\ngg a }\nbot f() : kamas { gg g() }\nconnexion {}",
+        );
+        assert_eq!(c["g"], 1);
+        assert_eq!(c["f"], 1, "f hérite du coût de g");
+    }
+
+    #[test]
+    fn cout_auto_alimente_verif_tour() {
+        // bot sans `coute`, corps lourd (7 PA dérivés) → appelé dans un tour → E-PA statique.
+        let src = "// gg wp
+bot lourd() : kamas { loot a = 0
+a = 1
+a = 2
+a = 3
+a = 4
+a = 5
+a = 6
+gg a }
+connexion {
+    tour { loot x = lourd() }
+    passer
+}";
+        let e = errs(src);
+        assert!(
+            e.iter().any(|x| x.code == Some("E-PA")),
+            "attendu E-PA : {e:?}"
+        );
     }
 
     #[test]

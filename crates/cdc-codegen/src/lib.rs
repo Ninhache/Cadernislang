@@ -11,6 +11,7 @@
 //! Toutes les valeurs sont des `i64` (kamas ; `flag` = 0/1). Les chaînes (`up`) sont des globales.
 
 use cdc_ast::*;
+use cdc_runtime::Config;
 use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
@@ -121,23 +122,25 @@ impl Cg {
     }
 
     fn emit(mut self, program: &Program) -> Result<String, String> {
-        // seed de patch : pragma #patch_seed, surchargé par l'env CDC_PATCH_SEED (au build).
-        let mut patch_seed = 0u64;
+        // config depuis les pragmas (assign_pa/up_pa/patch_seed…), env CDC_PATCH_SEED au build.
+        let mut cfg = Config::default();
         for p in &program.pragmas {
-            if p.key == "patch_seed" {
-                patch_seed = p.value as u64;
-            }
+            cfg.apply(&p.key, p.value);
         }
         if let Ok(s) = std::env::var("CDC_PATCH_SEED") {
             if let Ok(n) = s.parse::<u64>() {
-                patch_seed = n;
+                cfg.patch_seed = n;
             }
         }
+        let patch_seed = cfg.patch_seed;
+        // coûts PA effectifs (déclarés ou auto-dérivés, Phase 7)
+        let costs = cdc_sema::effective_costs(program, &cfg);
         for item in &program.items {
             match item {
                 Item::Bot(b) => {
+                    let cost = costs.get(&b.name).copied().unwrap_or(0);
                     self.bot_meta
-                        .insert(b.name.clone(), (b.cost_pa.unwrap_or(0), b.cd.unwrap_or(0)));
+                        .insert(b.name.clone(), (cost, b.cd.unwrap_or(0)));
                 }
                 Item::Pano(p) => {
                     let pins: Vec<Option<i64>> = p.variants.iter().map(|v| v.pin).collect();

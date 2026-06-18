@@ -43,9 +43,17 @@ Le programme s'exécute par **tours de jeu**.
 | Comparaison, opérateur booléen (`et`/`ou`/`pas`), lecture de `pa`/`pm`/`suspicion`, `cd_pret(...)`, lecture de variable **dans une condition** | **0 PA** (*perception*) |
 | Lecture d'une variable d'un scope plus externe (hors condition) | **1 PM par niveau de scope franchi** (voir §1.1.b) |
 
-**Modèle d'évaluation des `bot` :** un appel de `bot` coûte **uniquement** son `coute N pa`
-déclaré. Le corps s'exécute « instantanément » et ne consomme pas le budget du tour appelant
-(un sort coûte ses PA, on n'itemise pas l'intérieur).
+**Modèle d'évaluation des `bot` :** un appel de `bot` coûte **uniquement** son coût PA effectif. Le
+corps s'exécute « instantanément » et ne consomme pas le budget du tour appelant (un sort coûte ses
+PA, on n'itemise pas l'intérieur).
+
+> **⚠️ Déviation 11 (coût PA auto-dérivé, ADR-003).** `coute N pa` est **optionnel**. S'il est
+> déclaré, c'est le coût (override « imposé par le jeu »). **S'il est omis, le coût est
+> auto-dérivé** = somme statique des coûts du corps (pire chemin sur les `detect`, appels de bots
+> imbriqués inclus). Rationale : au niveau d'un `tour` les opérations sont déjà costées
+> automatiquement ; ne restait que le coût par `bot`. Non-cassant : les `bot` qui déclarent `coute`
+> (dont le golden) sont inchangés ; seul le défaut d'un `bot` sans `coute` passe de 0 à « somme du
+> corps ». Calcul unique : `cdc_sema::effective_costs`, partagé interp ↔ codegen ↔ sema (§9.7).
 
 > **⚠️ Déviation 1 (clarification) — Budget actif uniquement dans `tour {}`.** Les statements hors
 > `tour` (setup en tête de `connexion`, `up` final…) ne sont pas budgétés. Ils alimentent
