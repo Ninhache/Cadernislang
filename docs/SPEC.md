@@ -201,9 +201,25 @@ error: sort en cooldown
 
 ### 1.4 — (Bonus, Phase 6) Dérive de patch
 
-À chaque `cdc build`, un seed renumérote les tags internes des champs de `perso` et des variants
-de `pano`, **sauf** ceux épinglés (`@N`). Un code épinglé survit ; un code paresseux casse au
-rebuild. À faire une fois le reste stable.
+`pano Nom { A, B, @2 C }` déclare une énumération. Chaque variant a un **tag** entier ;
+`Nom.A` s'évalue en ce tag (de type `kamas`). Les tags des variants **non épinglés** sont
+**permutés par un seed de patch** (simulant la renumérotation interne d'une MAJ Dofus) ; un
+variant **épinglé** `@N` garde le tag `N`. Un code qui compare un variant à une valeur en dur
+(`detect Nom.A == 0`) **casse au rebuild** quand le seed change ; un code défensif épingle son
+variant et survit.
+
+> **⚠️ Déviation 10 (Phase 6).**
+> - **Seed contrôlé, pas aléatoire caché.** La spec d'origine parlait d'un seed *aléatoire* par
+>   `cdc build`. Pour que ce soit **déterministe et testable**, le seed vient du pragma
+>   `#patch_seed N` ou de l'env `CDC_PATCH_SEED` (défaut 0). Deux builds/run avec des seeds
+>   différents = deux « patchs ». La dérive est observable en `run` **et** en `build` (le tag est
+>   une constante bakée dans le binaire au moment du `build`).
+> - **`perso` (structs) reporté.** Seul `pano` est implémenté comme véhicule de la dérive. La
+>   construction de structs `Nom { … }` crée une ambiguïté grammaticale (struct-literal vs bloc de
+>   `detect`/`farm`) disproportionnée pour un bonus ; le cœur de §1.4 (le code paresseux casse au
+>   rebuild) est entièrement démontré par `pano`. `perso` pourra être ajouté ultérieurement.
+> - La logique de permutation (`cdc_runtime::patch::layout`) est **partagée** interp ↔ codegen
+>   (invariant §9.7). Un tag épinglé hors `0..n` ou dupliqué est une erreur sema.
 
 ### 1.5 — Turing-complétude & écrivabilité
 
@@ -313,8 +329,8 @@ Littéraux numériques : underscores autorisés et ignorés (`1_000_000`).
 > - **Lignes suivantes** (optionnelles, avant tout `item`) : pragmas `#clé valeur`.
 >
 > Pragmas reconnus : `#max_pa N`, `#max_pm N`, `#seuil_ban N`, `#penalite N`, `#decay N`,
-> `#fenetre N` (K), `#bucket_ms N`, `#seed N`. Toute valeur surcharge la constante par défaut de
-> `cdc-runtime::config`.
+> `#fenetre N` (K), `#bucket_ms N`, `#seed N`, `#patch_seed N` (§1.4). Toute valeur surcharge la
+> constante par défaut de `cdc-runtime::config`.
 
 ---
 
@@ -328,10 +344,12 @@ lexer. Cas particulier easter egg : la **ligne 1** du fichier doit être exactem
 programme   = entete , { pragma } , { item } ;
 entete      = "// gg wp" , NEWLINE ;
 pragma      = "#" , IDENT , INT , NEWLINE ;
-item        = serveur_decl | bot_decl | connexion_decl ;
+item        = serveur_decl | bot_decl | connexion_decl | pano_decl ;
 
 serveur_decl   = "serveur" , IDENT ;
 connexion_decl = "connexion" , bloc ;
+pano_decl      = "pano" , IDENT , "{" , [ variant , { "," , variant } ] , "}" ;
+variant        = [ "@" , INT ] , IDENT ;   (* @N épingle le tag, §1.4 *)
 
 bot_decl    = "bot" , IDENT , "(" , [ params ] , ")" ,
               [ ":" , type ] ,
@@ -363,7 +381,8 @@ expr_stmt   = expr ;
 
 expr        = (* arith +,-,*,/ ; comparaisons <,<=,>,>=,==,!= ;
                 et/ou/pas ; appels builtin f(args) ; appels de bot ;
-                littéraux kamas/flag/txt ; pa/pm/suspicion ; IDENT *) ;
+                Pano.Variant (tag, §1.4) ; littéraux kamas/flag/txt ;
+                pa/pm/suspicion ; IDENT *) ;
 ```
 
 **Précédence des opérateurs** (du plus fort au plus faible), tous **associatifs à gauche** sauf le

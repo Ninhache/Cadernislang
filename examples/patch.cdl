@@ -1,0 +1,22 @@
+// gg wp
+// Dérive de patch (SPEC §1.4) : les tags des variants non épinglés sont permutés par le
+// patch_seed (≈ une MAJ Dofus qui renumérote). Le code paresseux qui suppose un tag fixe casse ;
+// le code défensif épingle son variant (@N) et survit.
+//
+//   CDC_PATCH_SEED=1 cdc run examples/patch.cdl   # vs CDC_PATCH_SEED=2 : « Connecte » dérive
+//   « Banni » est épinglé @2 → stable quel que soit le seed.
+pano Statut { Connecte, Afk, @2 Banni }
+
+connexion {
+    detect Statut.Banni == 2 {
+        up "banni epingle ok"
+    } sinon {
+        up "banni a derive (impossible : epingle)"
+    }
+
+    detect Statut.Connecte == 0 {
+        up "connecte tag 0"
+    } sinon {
+        up "connecte a derive"
+    }
+}

@@ -76,6 +76,7 @@ pub fn check(program: &Program) -> Vec<SemaError> {
         errors: Vec::new(),
         scopes: vec![HashMap::new()],
         bots: HashMap::new(),
+        panos: HashMap::new(),
         cfg,
     };
     s.run(program);
@@ -86,6 +87,8 @@ struct Sema {
     errors: Vec<SemaError>,
     scopes: Vec<HashMap<String, VarInfo>>,
     bots: HashMap<String, BotSig>,
+    /// `pano` → ensemble des noms de variants.
+    panos: HashMap<String, HashSet<String>>,
     cfg: Config,
 }
 
@@ -112,10 +115,23 @@ impl Sema {
             }
         }
 
+        // pano : enregistrer les variants et valider les épinglages (SPEC §1.4).
+        for item in &program.items {
+            if let Item::Pano(p) = item {
+                let names: HashSet<String> = p.variants.iter().map(|v| v.name.clone()).collect();
+                self.panos.insert(p.name.clone(), names);
+                let pins: Vec<Option<i64>> = p.variants.iter().map(|v| v.pin).collect();
+                if let Err(e) = cdc_runtime::patch::layout(&pins, self.cfg.patch_seed) {
+                    self.err(None, format!("pano « {} » : {e}", p.name), p.line, p.col);
+                }
+            }
+        }
+
         let mut has_connexion = false;
         for item in &program.items {
             match item {
                 Item::Serveur(_) => {}
+                Item::Pano(_) => {}
                 Item::Bot(b) => self.check_bot(b),
                 Item::Connexion(blk) => {
                     has_connexion = true;
@@ -284,6 +300,19 @@ impl Sema {
             }
             ExprKind::Binary(op, l, r) => self.infer_binary(*op, l, r),
             ExprKind::Call(name, args) => self.infer_call(name, args, e.line, e.col),
+            ExprKind::Path(ty, member) => {
+                match self.panos.get(ty) {
+                    Some(variants) if variants.contains(member) => {}
+                    Some(_) => self.err(
+                        None,
+                        format!("variant « {member} » inconnu dans pano « {ty} »"),
+                        e.line,
+                        e.col,
+                    ),
+                    None => self.err(None, format!("pano « {ty} » inconnu"), e.line, e.col),
+                }
+                Ty::Kamas // un tag est un entier
+            }
         }
     }
 

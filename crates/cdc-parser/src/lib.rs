@@ -173,7 +173,8 @@ impl Parser {
                 self.bump();
                 Ok(Item::Connexion(self.block()?))
             }
-            _ => self.err("attendu « serveur », « bot » ou « connexion »"),
+            Some(Token::Ident(s)) if s == "pano" => Ok(Item::Pano(self.pano()?)),
+            _ => self.err("attendu « serveur », « bot », « pano » ou « connexion »"),
         }
     }
 
@@ -228,6 +229,37 @@ impl Parser {
             cost_pa,
             cd,
             body,
+            line,
+            col,
+        })
+    }
+
+    /// `pano Nom { [@N] Variant , … }` (le mot `pano` est contextuel).
+    fn pano(&mut self) -> PResult<Pano> {
+        let (line, col) = self.here();
+        self.bump(); // pano
+        let name = self.ident()?;
+        self.expect(&Token::LBrace, "« { »")?;
+        let mut variants = Vec::new();
+        while !self.at(&Token::RBrace) {
+            if self.peek().is_none() {
+                return self.err("« } » manquant");
+            }
+            let pin = if self.eat(&Token::At) {
+                Some(self.int()?)
+            } else {
+                None
+            };
+            let vname = self.ident()?;
+            variants.push(Variant { name: vname, pin });
+            if !self.eat(&Token::Comma) {
+                break;
+            }
+        }
+        self.expect(&Token::RBrace, "« } »")?;
+        Ok(Pano {
+            name,
+            variants,
             line,
             col,
         })
@@ -537,6 +569,9 @@ impl Parser {
                 if self.at(&Token::LParen) {
                     let args = self.call_args()?;
                     ExprKind::Call(name, args)
+                } else if self.eat(&Token::Dot) {
+                    let member = self.ident()?;
+                    ExprKind::Path(name, member)
                 } else {
                     ExprKind::Var(name)
                 }

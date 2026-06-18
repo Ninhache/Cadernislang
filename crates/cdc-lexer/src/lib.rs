@@ -127,6 +127,10 @@ pub enum Token {
     Colon,
     #[token("#")]
     Hash,
+    #[token(".")]
+    Dot,
+    #[token("@")]
+    At,
 
     // --- opérateurs (les plus longs en premier pour le longest-match) ---
     #[token("+=")]
