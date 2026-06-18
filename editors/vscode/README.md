@@ -23,8 +23,10 @@ lance un debug générique). La config `.vscode/launch.json` ajoute la cible **�
 (cadernislang) »** : appuyer sur **F5** compile puis ouvre une fenêtre *Extension Development
 Host*. Y ouvrir un fichier `.cdl` → diagnostics, complétions et coûts PA/PM en inline.
 
-> Le serveur `cdc-lsp` doit être trouvable : soit dans le `PATH`, soit via le réglage
-> `cadernislang.serverPath` pointant sur `../../target/release/cdc-lsp`.
+> En mode F5, `launch.json` **injecte automatiquement** le chemin du serveur via la variable
+> d'env `CDC_LSP_SERVER` (= `…/target/release/cdc-lsp`) — rien à configurer. Hors F5 (extension
+> installée), le serveur `cdc-lsp` doit être dans le `PATH` ou pointé par le réglage
+> `cadernislang.serverPath`. Ordre de résolution : `CDC_LSP_SERVER` > réglage > `PATH`.
 
 > Note : ce client n'a pas pu être testé automatiquement dans l'environnement de dev (pas
 > d'éditeur). Le serveur `cdc-lsp`, lui, est vérifié (build + tests d'analyse + smoke LSP

@@ -10,9 +10,11 @@ import {
 let client: LanguageClient;
 
 export function activate(_context: ExtensionContext) {
-  const serverPath = workspace
-    .getConfiguration("cadernislang")
-    .get<string>("serverPath", "cdc-lsp");
+  // Priorité : variable d'env (injectée par launch.json en dev) > réglage > PATH.
+  const serverPath =
+    process.env.CDC_LSP_SERVER ||
+    workspace.getConfiguration("cadernislang").get<string>("serverPath", "") ||
+    "cdc-lsp";
 
   // Le serveur communique via stdin/stdout (cf. crates/cdc-lsp).
   const serverOptions: ServerOptions = {

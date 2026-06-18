@@ -7,6 +7,9 @@
       "request": "launch",
       "args": ["--extensionDevelopmentPath=${workspaceFolder}"],
       "outFiles": ["${workspaceFolder}/out/**/*.js"],
+      "env": {
+        "CDC_LSP_SERVER": "${workspaceFolder}/../../target/release/cdc-lsp"
+      },
       "preLaunchTask": "npm: compile"
     }
   ]
