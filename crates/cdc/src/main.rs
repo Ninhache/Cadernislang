@@ -17,7 +17,8 @@ fn usage() -> String {
          usage:\n  \
          cdc run   <fichier.cdl>   # interprète (cdc-interp)\n  \
          cdc build <fichier.cdl>   # compile via LLVM + link cdc-runtime → binaire natif\n  \
-         cdc check <fichier.cdl>   # lexer + parser + sema, sans exécution\n\n\
+         cdc check <fichier.cdl>   # lexer + parser + sema, sans exécution\n  \
+         cdc cost  <fichier.cdl>   # coût PA des bots + usage PA/PM par tour\n\n\
          {BANNER}"
     )
 }
@@ -28,6 +29,44 @@ fn runtime_staticlib() -> std::path::PathBuf {
         .ok()
         .and_then(|p| p.parent().map(|d| d.join("libcdc_runtime.a")))
         .unwrap_or_else(|| std::path::PathBuf::from("libcdc_runtime.a"))
+}
+
+/// Affiche le rapport de coût (`cdc cost`).
+fn print_cost(r: &cdc_sema::CostReport) {
+    println!("bots — coût PA effectif :");
+    if r.bots.is_empty() {
+        println!("  (aucun)");
+    }
+    for b in &r.bots {
+        let src = if b.declared {
+            "déclaré"
+        } else {
+            "auto-dérivé"
+        };
+        println!("  {} : {} PA ({src})", b.name, b.cost);
+    }
+    println!(
+        "tours — usage par tour (budget {} PA / {} PM) :",
+        r.max_pa, r.max_pm
+    );
+    if r.tours.is_empty() {
+        println!("  (aucun)");
+    }
+    for t in &r.tours {
+        if t.dynamic {
+            println!(
+                "  ligne {}, col {} : dynamique (boucle/tour imbriqué → vérif au runtime)",
+                t.line, t.col
+            );
+        } else {
+            let fpa = if t.pa > r.max_pa { "  ⚠️ E-PA" } else { "" };
+            let fpm = if t.pm > r.max_pm { "  ⚠️ E-PM" } else { "" };
+            println!(
+                "  ligne {}, col {} : {}/{} PA, {}/{} PM{fpa}{fpm}",
+                t.line, t.col, t.pa, r.max_pa, t.pm, r.max_pm
+            );
+        }
+    }
 }
 
 fn main() -> ExitCode {
@@ -53,7 +92,7 @@ fn dispatch(args: &[String]) -> Result<(), ()> {
         return Ok(());
     }
 
-    if !matches!(cmd, "run" | "build" | "check") {
+    if !matches!(cmd, "run" | "build" | "check" | "cost") {
         eprintln!("error: sous-commande inconnue « {cmd} »\n\n{}", usage());
         return Err(());
     }
@@ -127,6 +166,7 @@ fn dispatch(args: &[String]) -> Result<(), ()> {
             // SPEC §8 / issue #8 : `cdc check` affiche l'AST en debug.
             println!("{program:#?}");
         }
+        "cost" => print_cost(&cdc_sema::report(&program)),
         _ => unreachable!("commande déjà validée"),
     }
     Ok(())
