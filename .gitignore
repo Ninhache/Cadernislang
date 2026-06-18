@@ -4,3 +4,4 @@ Cargo.lock
 .DS_Store
 node_modules/
 editors/vscode/out/
+editors/vscode/.vscode/settings.json
