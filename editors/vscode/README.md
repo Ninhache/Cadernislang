@@ -18,8 +18,13 @@ cd editors/vscode
 npm install
 npm run compile
 ```
-Puis, dans VS Code, ouvrir ce dossier et lancer « Run Extension » (F5). Ouvrir un `.cdl` :
-les diagnostics, complétions et coûts PA/PM en inline apparaissent.
+Puis **ouvrir le dossier `editors/vscode` dans VS Code** (⚠️ pas la racine du repo — sinon F5
+lance un debug générique). La config `.vscode/launch.json` ajoute la cible **« Run Extension
+(cadernislang) »** : appuyer sur **F5** compile puis ouvre une fenêtre *Extension Development
+Host*. Y ouvrir un fichier `.cdl` → diagnostics, complétions et coûts PA/PM en inline.
+
+> Le serveur `cdc-lsp` doit être trouvable : soit dans le `PATH`, soit via le réglage
+> `cadernislang.serverPath` pointant sur `../../target/release/cdc-lsp`.
 
 > Note : ce client n'a pas pu être testé automatiquement dans l'environnement de dev (pas
 > d'éditeur). Le serveur `cdc-lsp`, lui, est vérifié (build + tests d'analyse + smoke LSP
