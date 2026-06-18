@@ -77,6 +77,7 @@ pub fn check(program: &Program) -> Vec<SemaError> {
         scopes: vec![HashMap::new()],
         bots: HashMap::new(),
         panos: HashMap::new(),
+        persos: HashMap::new(),
         cfg,
     };
     s.run(program);
@@ -89,6 +90,8 @@ struct Sema {
     bots: HashMap<String, BotSig>,
     /// `pano` → ensemble des noms de variants.
     panos: HashMap<String, HashSet<String>>,
+    /// `perso` → ensemble des noms de champs.
+    persos: HashMap<String, HashSet<String>>,
     cfg: Config,
 }
 
@@ -115,15 +118,26 @@ impl Sema {
             }
         }
 
-        // pano : enregistrer les variants et valider les épinglages (SPEC §1.4).
+        // pano / perso : enregistrer membres et valider les épinglages (SPEC §1.4).
         for item in &program.items {
-            if let Item::Pano(p) = item {
-                let names: HashSet<String> = p.variants.iter().map(|v| v.name.clone()).collect();
-                self.panos.insert(p.name.clone(), names);
-                let pins: Vec<Option<i64>> = p.variants.iter().map(|v| v.pin).collect();
-                if let Err(e) = cdc_runtime::patch::layout(&pins, self.cfg.patch_seed) {
-                    self.err(None, format!("pano « {} » : {e}", p.name), p.line, p.col);
+            match item {
+                Item::Pano(p) => {
+                    let names = p.variants.iter().map(|v| v.name.clone()).collect();
+                    self.panos.insert(p.name.clone(), names);
+                    let pins: Vec<Option<i64>> = p.variants.iter().map(|v| v.pin).collect();
+                    if let Err(e) = cdc_runtime::patch::layout(&pins, self.cfg.patch_seed) {
+                        self.err(None, format!("pano « {} » : {e}", p.name), p.line, p.col);
+                    }
                 }
+                Item::Perso(p) => {
+                    let names = p.fields.iter().map(|f| f.name.clone()).collect();
+                    self.persos.insert(p.name.clone(), names);
+                    let pins: Vec<Option<i64>> = p.fields.iter().map(|f| f.pin).collect();
+                    if let Err(e) = cdc_runtime::patch::layout(&pins, self.cfg.patch_seed) {
+                        self.err(None, format!("perso « {} » : {e}", p.name), p.line, p.col);
+                    }
+                }
+                _ => {}
             }
         }
 
@@ -131,7 +145,7 @@ impl Sema {
         for item in &program.items {
             match item {
                 Item::Serveur(_) => {}
-                Item::Pano(_) => {}
+                Item::Pano(_) | Item::Perso(_) => {}
                 Item::Bot(b) => self.check_bot(b),
                 Item::Connexion(blk) => {
                     has_connexion = true;
@@ -300,18 +314,62 @@ impl Sema {
             }
             ExprKind::Binary(op, l, r) => self.infer_binary(*op, l, r),
             ExprKind::Call(name, args) => self.infer_call(name, args, e.line, e.col),
-            ExprKind::Path(ty, member) => {
-                match self.panos.get(ty) {
-                    Some(variants) if variants.contains(member) => {}
-                    Some(_) => self.err(
+            ExprKind::Path(left, member) => {
+                if let Some(variants) = self.panos.get(left) {
+                    // Pano.Variant → tag
+                    if !variants.contains(member) {
+                        self.err(
+                            None,
+                            format!("variant « {member} » inconnu dans pano « {left} »"),
+                            e.line,
+                            e.col,
+                        );
+                    }
+                    Ty::Kamas
+                } else if let Some(fields) = self.persos.get(left) {
+                    // Perso.champ → tag du champ (dérivant)
+                    if !fields.contains(member) {
+                        self.err(
+                            None,
+                            format!("champ « {member} » inconnu dans perso « {left} »"),
+                            e.line,
+                            e.col,
+                        );
+                    }
+                    Ty::Kamas
+                } else if self.lookup(left).is_some() {
+                    // variable.champ → accès de champ (type non suivi finement)
+                    Ty::Unknown
+                } else {
+                    self.err(
                         None,
-                        format!("variant « {member} » inconnu dans pano « {ty} »"),
+                        format!("« {left} » n'est ni un pano, ni un perso, ni une variable"),
                         e.line,
                         e.col,
-                    ),
-                    None => self.err(None, format!("pano « {ty} » inconnu"), e.line, e.col),
+                    );
+                    Ty::Unknown
                 }
-                Ty::Kamas // un tag est un entier
+            }
+            ExprKind::Struct(ty, fields) => {
+                match self.persos.get(ty).cloned() {
+                    Some(decl_fields) => {
+                        for (fname, _) in fields {
+                            if !decl_fields.contains(fname) {
+                                self.err(
+                                    None,
+                                    format!("champ « {fname} » inconnu dans perso « {ty} »"),
+                                    e.line,
+                                    e.col,
+                                );
+                            }
+                        }
+                    }
+                    None => self.err(None, format!("perso « {ty} » inconnu"), e.line, e.col),
+                }
+                for (_, v) in fields {
+                    self.infer(v);
+                }
+                Ty::Unknown
             }
         }
     }

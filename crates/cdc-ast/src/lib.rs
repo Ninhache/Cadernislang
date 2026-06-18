@@ -30,6 +30,25 @@ pub enum Item {
     Connexion(Block),
     /// `pano Nom { [@N] Variant, … }` — énumération à tags dérivants (SPEC §1.4, Phase 6).
     Pano(Pano),
+    /// `perso Nom { [@N] champ: type, … }` — struct à tags de champ dérivants (SPEC §1.4).
+    Perso(Perso),
+}
+
+/// Déclaration de structure `perso`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Perso {
+    pub name: String,
+    pub fields: Vec<Field>,
+    pub line: u32,
+    pub col: u32,
+}
+
+/// Champ de `perso` : nom, type, tag épinglé optionnel (`@N`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Field {
+    pub name: String,
+    pub ty: Type,
+    pub pin: Option<i64>,
 }
 
 /// Déclaration d'énumération `pano`.
@@ -199,6 +218,9 @@ pub enum ExprKind {
     Binary(BinOp, Box<Expr>, Box<Expr>),
     /// Appel `f(args)` : builtin (`rand`/`butin`/`cd_pret`) ou `bot`.
     Call(String, Vec<Expr>),
-    /// `Pano.Variant` → tag (entier, dérivant selon le seed de patch). SPEC §1.4.
+    /// `Gauche.droite` : selon `gauche` — `Pano.Variant` ou `Perso.champ` → tag (dérivant) ;
+    /// `variable.champ` → valeur du champ. Désambiguïsé en sema/interp. SPEC §1.4.
     Path(String, String),
+    /// `Nom { champ: expr, … }` — construction d'un `perso`.
+    Struct(String, Vec<(String, Expr)>),
 }
