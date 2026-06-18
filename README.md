@@ -112,7 +112,19 @@ Workspace Cargo, un crate par responsabilité :
 | `cdc-interp` | interpréteur tree-walking |
 | `cdc-codegen` | backend natif : émission de LLVM IR textuel → `clang` |
 | `cdc-runtime` | **toute** la jouabilité (PA/PM, suspicion, cooldowns, builtins), partagée interp ↔ LLVM |
+| `cdc-lsp` | serveur Language Server (tooling) : diagnostics, complétions, coût PA/PM inline |
 | `cdc` | binaire CLI (driver) |
+
+## Outillage éditeur (LSP)
+
+`cdc-lsp` (crate séparé, `tower-lsp`) fournit aux éditeurs : **diagnostics live**, **complétions**,
+et le **coût PA/PM par `tour` en inline** (inlay hints, ex. `5/6 PA · 1/3 PM`). L'extension VS Code
+est dans `editors/vscode` (client mince lançant `cdc-lsp`). Voir `docs/architecture/ADR-004`.
+
+```bash
+cargo build --release -p cdc-lsp     # serveur LSP
+cdc cost examples/dopeuls.cdl        # même info en CLI (coût des bots + usage par tour)
+```
 
 **Invariant :** la sémantique des mécaniques vit **uniquement** dans `cdc-runtime` — interp et
 codegen l'appellent, jamais de duplication divergente.

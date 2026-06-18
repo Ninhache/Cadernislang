@@ -8,6 +8,7 @@ members = [
     "crates/cdc-interp",
     "crates/cdc-codegen",
     "crates/cdc-runtime",
+    "crates/cdc-lsp",
     "crates/cdc",
 ]
 
